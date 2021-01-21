@@ -1,0 +1,50 @@
+use package core
+
+// To easily change to 64-bit floats if needed.
+float :: #type f32;
+
+
+NeuralNet :: struct {
+    layers  : [] Layer;
+
+    // CLEANUP: Move these to core.alloc, so the nesting isn't nearly as terrible.
+    layer_arena : alloc.arena.ArenaState;
+}
+
+make_neural_network :: (layer_sizes: ..i32) -> NeuralNet {
+    net : NeuralNet;
+
+    net.layer_arena = alloc.arena.make(alloc.heap_allocator, 64 * 1024 * 1024); // 64 MiB
+    layer_allocator := alloc.arena.make_allocator(^net.layer_arena);
+
+    net.layers = memory.make_slice(Layer, layer_sizes.count);
+}
+
+
+
+
+
+Layer :: struct {
+    neurons : [] float;
+    weights : [] float;
+}
+
+layer_forward :: (use layer: ^Layer, prev_layer: ^Layer) {
+    for i: 0 .. neurons.count {
+        neurons[i] = 0;
+        for j: 0 .. weights.count {
+            neurons[i] += prev_layer.neurons[j] * weights[j];
+        }
+
+        neurons[i] = sigmoid(neurons[i]);
+    }
+}
+
+
+
+
+sigmoid :: (x: float) -> float {
+    ex := math.exp(x);
+    return ex / (1 + ex);
+}
+
