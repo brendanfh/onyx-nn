@@ -11,29 +11,69 @@ NeuralNet :: struct {
     layer_arena : alloc.arena.ArenaState;
 }
 
-make_neural_network :: (layer_sizes: ..i32) -> NeuralNet {
+make_neural_net :: (layer_sizes: ..i32) -> NeuralNet {
     net : NeuralNet;
 
-    net.layer_arena = alloc.arena.make(alloc.heap_allocator, 64 * 1024 * 1024); // 64 MiB
+    net.layer_arena  = alloc.arena.make(alloc.heap_allocator, 64 * 1024 * 1024); // 64 MiB
     layer_allocator := alloc.arena.make_allocator(^net.layer_arena);
 
     net.layers = memory.make_slice(Layer, layer_sizes.count);
+
+    init_layer(^net.layers[0], layer_sizes[0], 0, allocator = layer_allocator);
+    for i: 1 .. net.layers.count {
+        init_layer(^net.layers[i], layer_sizes[i], layer_sizes[i - 1], allocator = layer_allocator);
+    }
+
+    return net;
 }
 
+neural_net_forward :: (use nn: ^NeuralNet, input: [] float) {
+    assert(input.count == layers[0].neurons.count, "Input does not have the same size as the first layer.");
 
+    for i: input.count do layers[0].neurons[i] = input[i];
 
+    for i: 1 .. layers.count {
+        layer_forward(^layers[i], ^layers[i - 1]);
+    }
+}
+
+neural_net_get_output :: (use nn: ^NeuralNet) -> [] float {
+    return layers[layers.count - 1].neurons;
+}
 
 
 Layer :: struct {
-    neurons : [] float;
-    weights : [] float;
+    neurons :   [] float;
+    weights : [][] float;
+}
+
+init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocator := context.allocator) {
+    neurons = memory.make_slice(float, layer_size, allocator);
+
+    if prev_layer_size > 0 {
+        weights = memory.make_slice(#type [] float, layer_size, allocator);
+
+        for ^weight: weights {
+            *weight = memory.make_slice(float, prev_layer_size, allocator);
+        }
+
+        randomize_weights(layer);
+    }
+}
+
+randomize_weights :: (use layer: ^Layer) {
+    for ^weight: weights {
+        for ^w: *weight {
+            *w = random.float(-2.0f, 2.0f);
+        }
+    }
 }
 
 layer_forward :: (use layer: ^Layer, prev_layer: ^Layer) {
-    for i: 0 .. neurons.count {
+    for i: neurons.count {
         neurons[i] = 0;
-        for j: 0 .. weights.count {
-            neurons[i] += prev_layer.neurons[j] * weights[j];
+        for j: weights[i].count {
+            neurons[i] += prev_layer.neurons[j] * weights[i][j];
         }
 
         neurons[i] = sigmoid(neurons[i]);

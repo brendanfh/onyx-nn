@@ -11,5 +11,15 @@ use package core
 // Feed forward neural net
 
 main :: (args: [] cstr) {
-    println(sigmoid(-4.0f));
+    // Enables a logging allocator to print every allocation
+    // main_allocator := context.allocator;
+    // context.allocator = alloc.log.logging_allocator(^main_allocator);
+
+    nn := make_neural_net(28 * 28, 1000, 10);
+
+    neural_net_forward(^nn, ~~ input);
+
+    output := neural_net_get_output(^nn);
+
+    for o: output do println(o);
 }
