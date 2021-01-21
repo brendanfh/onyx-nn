@@ -10,16 +10,45 @@ use package core
 // Load the data
 // Feed forward neural net
 
+load_example :: (fs: ^io.FileStream, example: u32, out: [784] u8) {
+    location := 16 + example * 784;
+    _, bytes_read := io.stream_read_at(fs, location, ~~ out);
+    
+    assert(bytes_read == 784, "Incorrect number of bytes read.");
+}
+
 main :: (args: [] cstr) {
     // Enables a logging allocator to print every allocation
     // main_allocator := context.allocator;
     // context.allocator = alloc.log.logging_allocator(^main_allocator);
 
+    random.set_seed(1234);
+
+    err, training_example := io.open("data/train-images-idx3-ubyte");
+    if err != io.Error.None {
+        println("There was an error loading the file.");
+        return;
+    }
+    defer io.stream_close(^training_example);
+
+    example : [784] u8;
+    load_example(^training_example, 0, example);
+
     nn := make_neural_net(28 * 28, 1000, 10);
+    defer neural_net_free(^nn);
+
+    input := memory.make_slice(f32, 784);
+    defer cfree(input.data);
+
+    // CLEANUP: The double cast that is necessary here is gross.
+    for i: input.count do input[i] = (cast(f32) cast(u32) example[i]) / 255;
 
     neural_net_forward(^nn, ~~ input);
-
     output := neural_net_get_output(^nn);
 
     for o: output do println(o);
+
+    expected := f32.[ 0, 0, 0, 0, 0, 0, 0, 0, 1, 0 ];
+    loss := neural_net_loss(^nn, ~~ expected);
+    printf("MSE loss: %f\n", loss);
 }

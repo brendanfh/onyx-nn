@@ -14,10 +14,10 @@ NeuralNet :: struct {
 make_neural_net :: (layer_sizes: ..i32) -> NeuralNet {
     net : NeuralNet;
 
-    net.layer_arena  = alloc.arena.make(alloc.heap_allocator, 64 * 1024 * 1024); // 64 MiB
+    net.layer_arena  = alloc.arena.make(context.allocator, 64 * 1024 * 1024); // 64 MiB
     layer_allocator := alloc.arena.make_allocator(^net.layer_arena);
 
-    net.layers = memory.make_slice(Layer, layer_sizes.count);
+    net.layers = memory.make_slice(Layer, layer_sizes.count, allocator = layer_allocator);
 
     init_layer(^net.layers[0], layer_sizes[0], 0, allocator = layer_allocator);
     for i: 1 .. net.layers.count {
@@ -25,6 +25,10 @@ make_neural_net :: (layer_sizes: ..i32) -> NeuralNet {
     }
 
     return net;
+}
+
+neural_net_free :: (use nn: ^NeuralNet) {
+    alloc.arena.free(^layer_arena);
 }
 
 neural_net_forward :: (use nn: ^NeuralNet, input: [] float) {
@@ -37,14 +41,35 @@ neural_net_forward :: (use nn: ^NeuralNet, input: [] float) {
     }
 }
 
+neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] float) {
+
+}
+
 neural_net_get_output :: (use nn: ^NeuralNet) -> [] float {
     return layers[layers.count - 1].neurons;
+}
+
+neural_net_loss :: (use nn: ^NeuralNet, expected_output: [] float) -> float {
+    // MSE loss
+    assert(layers[layers.count - 1].neurons.count == expected_output.count,
+            "Expected output does not have the same size as the last layer.");
+
+    output := layers[layers.count - 1].neurons;
+
+    squared_sum: float = 0;
+    for i: expected_output.count {
+        diff := output[i] - expected_output[i];
+        squared_sum += diff * diff;
+    }
+
+    loss := math.sqrt(squared_sum);
+    return loss;
 }
 
 
 Layer :: struct {
     neurons :   [] float;
-    weights : [][] float;
+    weights : [][] float; // CLEANUP: Make this a rank 1 slice
 }
 
 init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocator := context.allocator) {
@@ -64,7 +89,7 @@ init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
 randomize_weights :: (use layer: ^Layer) {
     for ^weight: weights {
         for ^w: *weight {
-            *w = random.float(-2.0f, 2.0f);
+            *w = random.float(-1.0f, 1.0f);
         }
     }
 }
