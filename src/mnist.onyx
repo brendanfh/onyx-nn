@@ -1,0 +1,15 @@
+#load "core/std/wasi"
+
+#load_path "src"
+#load "neuralnet"
+
+use package core
+
+
+
+// Load the data
+// Feed forward neural net
+
+main :: (args: [] cstr) {
+    println(sigmoid(-4.0f));
+}
