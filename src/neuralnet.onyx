@@ -42,7 +42,39 @@ neural_net_forward :: (use nn: ^NeuralNet, input: [] float) {
 }
 
 neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] float) {
+    assert(layers[layers.count - 1].neurons.count == expected_output.count,
+            "Expected output does not have the same size as the last layer.");
 
+    LEARNING_RATE :: cast(float) 0.01;
+
+    while i := layers.count - 1; i >= 1 {
+        defer i -= 1;
+
+        for j: layers[i].neurons.count {
+            sigmoid_value   := layers[i].neurons[j];
+            d_sigmoid_value := sigmoid_value * (1 - sigmoid_value);
+
+            if i == layers.count - 1 {
+                layers[i].deltas[j] = 2 * (expected_output[j] - sigmoid_value) * d_sigmoid_value;
+            } else {
+                d_neuron: float = 0;
+                for k: layers[i + 1].neurons.count {
+                    d_neuron += layers[i + 1].deltas[k] * layers[i + 1].weights[k][j];
+                }
+                layers[i].deltas[j] = d_neuron * d_sigmoid_value;
+            }
+        }
+    }
+
+    for i: 1 .. layers.count {
+        for j: layers[i].neurons.count {
+            layers[i].biases[j] += LEARNING_RATE * layers[i].deltas[j];
+
+            for k: layers[i].weights[j].count {
+                layers[i].weights[j][k] += LEARNING_RATE * layers[i].deltas[j] * layers[i].neurons[k];
+            }
+        }
+    }
 }
 
 neural_net_get_output :: (use nn: ^NeuralNet) -> [] float {
@@ -62,18 +94,22 @@ neural_net_loss :: (use nn: ^NeuralNet, expected_output: [] float) -> float {
         squared_sum += diff * diff;
     }
 
-    loss := math.sqrt(squared_sum);
+    loss := squared_sum / ~~expected_output.count;
     return loss;
 }
 
 
 Layer :: struct {
     neurons :   [] float;
+    biases  :   [] float;
     weights : [][] float; // CLEANUP: Make this a rank 1 slice
+    deltas  :   [] float;
 }
 
 init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocator := context.allocator) {
     neurons = memory.make_slice(float, layer_size, allocator);
+    deltas  = memory.make_slice(float, layer_size, allocator);
+    biases  = memory.make_slice(float, layer_size, allocator);
 
     if prev_layer_size > 0 {
         weights = memory.make_slice(#type [] float, layer_size, allocator);
@@ -82,21 +118,23 @@ init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
             *weight = memory.make_slice(float, prev_layer_size, allocator);
         }
 
-        randomize_weights(layer);
+        randomize_weights_and_biases(layer);
     }
 }
 
-randomize_weights :: (use layer: ^Layer) {
+randomize_weights_and_biases :: (use layer: ^Layer) {
     for ^weight: weights {
         for ^w: *weight {
-            *w = random.float(-1.0f, 1.0f);
+            *w = random.float(-0.5f, -0.5f);
         }
     }
+
+    for ^bias: biases do *bias = random.float(-0.5f, 0.5f);
 }
 
 layer_forward :: (use layer: ^Layer, prev_layer: ^Layer) {
     for i: neurons.count {
-        neurons[i] = 0;
+        neurons[i] = biases[i];
         for j: weights[i].count {
             neurons[i] += prev_layer.neurons[j] * weights[i][j];
         }

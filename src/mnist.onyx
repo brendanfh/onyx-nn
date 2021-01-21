@@ -43,12 +43,16 @@ main :: (args: [] cstr) {
     // CLEANUP: The double cast that is necessary here is gross.
     for i: input.count do input[i] = (cast(f32) cast(u32) example[i]) / 255;
 
-    neural_net_forward(^nn, ~~ input);
-    output := neural_net_get_output(^nn);
+    for i: 500 {
+        neural_net_forward(^nn, ~~ input);
+        output := neural_net_get_output(^nn);
+        for o: output do printf("%f ", o);
+        print("\n");
 
-    for o: output do println(o);
+        expected := f32.[ 0, 0, 0, 0, 0, 1, 0, 0, 0, 0 ];
+        loss := neural_net_loss(^nn, ~~ expected);
+        printf("MSE loss: %f\n", loss);
 
-    expected := f32.[ 0, 0, 0, 0, 0, 0, 0, 0, 1, 0 ];
-    loss := neural_net_loss(^nn, ~~ expected);
-    printf("MSE loss: %f\n", loss);
+        neural_net_backward(^nn, ~~ expected);
+    }
 }
