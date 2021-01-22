@@ -59,24 +59,28 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, mnist_data: ^MNIST_Data, training
             neural_net_backward(nn, ~~ expected);
 
             if ex % 100 == 0 {
-                print_colored_array :: (arr: [] $T) {
-                    greatest_idx := 0;
-                    for i: arr.count do if arr[i] > arr[greatest_idx] do greatest_idx = i;
-
+                print_colored_array :: (arr: [] $T, color_idx: i32, color_code := 94) {
                     for i: arr.count {
-                        if i == greatest_idx {
-                            printf("\x1b[94m%f\x1b[0m ", cast(f32) arr[i]);
+                        if i == color_idx {
+                            printf("\x1b[%im", color_code);
+                            print(arr[i]);
+                            print("\x1b[0m ");
                         } else {
-                            printf("%f ", cast(f32) arr[i]);
+                            print(arr[i]);
+                            print(" ");
                         }
                     }
                     print("\n");
                 }
 
-                print_colored_array(cast([] f32) expected);
-
                 output := neural_net_get_output(nn);
-                print_colored_array(output);
+                prediction := neural_net_get_prediction(nn);
+
+                color := 94;
+                if prediction != label do color = 91;
+
+                print_colored_array(cast([] f32) expected, label, color);
+                print_colored_array(output, prediction, color);
 
                 loss := neural_net_loss(nn, ~~ expected);
                 printf("MSE loss: %f\n", cast(f32) loss);
@@ -96,15 +100,14 @@ main :: (args: [] cstr) {
     // main_allocator := context.allocator;
     // context.allocator = alloc.log.logging_allocator(^main_allocator);
 
-    _ := neural_net_load("data/dummy.nn");
+    nn := neural_net_load("data/dummy.nn");
+    // nn := make_neural_net(28 * 28, 512, 256, 100, 10);
+    defer neural_net_free(^nn);
 
     random.set_seed(5234);
 
     mnist_data := mnist_data_make();
     defer mnist_data_close(^mnist_data);
-
-    nn := make_neural_net(28 * 28, 512, 256, 100, 10);
-    defer neural_net_free(^nn);
 
     stocastic_gradient_descent(^nn, ^mnist_data);
 }
