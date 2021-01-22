@@ -47,15 +47,26 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] float) {
 
     LEARNING_RATE :: cast(float) 0.01;
 
+    // Iterating backwards through the layers (hence the name "back propagation")
+    // The reason this is necessary is because we need to know the derivatives of
+    // neurons in the next layer to compute the derivatives of the current layers
+    // neurons. This is what makes this algorithm not exponentially slow.
     while i := layers.count - 1; i >= 1 {
         defer i -= 1;
 
+        // For every neuron, we need to calculate its corresponding "delta", which is
+        // kind of an abiguous term here. It specifically means the partial derivative
+        // of the the loss with respect to the weighted sum of the previous layers
+        // neurons, plus a bias.
         for j: layers[i].neurons.count {
             sigmoid_value   := layers[i].neurons[j];
             d_sigmoid_value := sigmoid_value * (1 - sigmoid_value);
 
+            // The last layer has its deriviate computed special, since it needs to capture
+            // the derivative of the MSE function.
             if i == layers.count - 1 {
                 layers[i].deltas[j] = 2 * (expected_output[j] - sigmoid_value) * d_sigmoid_value;
+
             } else {
                 d_neuron: float = 0;
                 for k: layers[i + 1].neurons.count {
@@ -66,6 +77,8 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] float) {
         }
     }
 
+    // Once all the deltas are computed, we can use them to compute the actual
+    // derivatives and update the biases and weights.
     for i: 1 .. layers.count {
         for j: layers[i].neurons.count {
             layers[i].biases[j] += LEARNING_RATE * layers[i].deltas[j];
@@ -125,11 +138,11 @@ init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
 randomize_weights_and_biases :: (use layer: ^Layer) {
     for ^weight: weights {
         for ^w: *weight {
-            *w = random.float(-0.5f, -0.5f);
+            *w = cast(float) random.float(-0.5f, -0.5f);
         }
     }
 
-    for ^bias: biases do *bias = random.float(-0.5f, 0.5f);
+    for ^bias: biases do *bias = cast(float) random.float(-0.5f, 0.5f);
 }
 
 layer_forward :: (use layer: ^Layer, prev_layer: ^Layer) {
