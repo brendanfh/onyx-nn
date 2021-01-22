@@ -42,8 +42,8 @@ load_example :: (use mnist_data: ^MNIST_Data, example: u32, out: [784] u8) -> u3
 
 stocastic_gradient_descent :: (nn: ^NeuralNet, mnist_data: ^MNIST_Data, training_examples := 50000) {
     example : [784] u8;
-    expected := float.[ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
-    input := memory.make_slice(float, 784);
+    expected := f32.[ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
+    input := memory.make_slice(f32, 784);
     defer cfree(input.data);
 
     for i: 10 {
@@ -53,7 +53,7 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, mnist_data: ^MNIST_Data, training
             defer expected[label] = 0.0f;
 
             // CLEANUP: The double cast that is necessary here is gross.
-            for i: input.count do input[i] = (cast(float) cast(u32) example[i]) / 255;
+            for i: input.count do input[i] = (cast(f32) cast(u32) example[i]) / 255;
 
             neural_net_forward(nn, ~~ input);
             neural_net_backward(nn, ~~ expected);
@@ -65,9 +65,9 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, mnist_data: ^MNIST_Data, training
 
                     for i: arr.count {
                         if i == greatest_idx {
-                            printf("\x1b[94m%f\x1b[0m ", arr[i]);
+                            printf("\x1b[94m%f\x1b[0m ", cast(f32) arr[i]);
                         } else {
-                            printf("%f ", arr[i]);
+                            printf("%f ", cast(f32) arr[i]);
                         }
                     }
                     print("\n");
@@ -80,6 +80,11 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, mnist_data: ^MNIST_Data, training
 
                 loss := neural_net_loss(nn, ~~ expected);
                 printf("MSE loss: %f\n", cast(f32) loss);
+
+                if ex % 10000 == 0 {
+                    println("Saving neural network...");
+                    neural_net_save(nn, "data/test_1.nn");
+                }
             }
         }
     }
@@ -90,6 +95,8 @@ main :: (args: [] cstr) {
     // Enables a logging allocator to print every allocation
     // main_allocator := context.allocator;
     // context.allocator = alloc.log.logging_allocator(^main_allocator);
+
+    _ := neural_net_load("data/dummy.nn");
 
     random.set_seed(5234);
 
