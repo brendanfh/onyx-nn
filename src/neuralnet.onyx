@@ -1,9 +1,5 @@
 use package core
 
-// To easily change to 64-bit floats if needed.
-float :: #type f32;
-
-
 NeuralNet :: struct {
     layers  : [] Layer;
 
@@ -13,25 +9,30 @@ NeuralNet :: struct {
 
 make_neural_net :: (layer_sizes: ..i32) -> NeuralNet {
     net : NeuralNet;
+    neural_net_init(^net, layer_sizes.count);
 
-    net.layer_arena  = alloc.arena.make(context.allocator, 64 * 1024 * 1024); // 64 MiB
     layer_allocator := alloc.arena.make_allocator(^net.layer_arena);
 
-    net.layers = memory.make_slice(Layer, layer_sizes.count, allocator = layer_allocator);
-
-    init_layer(^net.layers[0], layer_sizes[0], 0, allocator = layer_allocator);
+    layer_init(^net.layers[0], layer_sizes[0], 0, allocator = layer_allocator);
     for i: 1 .. net.layers.count {
-        init_layer(^net.layers[i], layer_sizes[i], layer_sizes[i - 1], allocator = layer_allocator);
+        layer_init(^net.layers[i], layer_sizes[i], layer_sizes[i - 1], allocator = layer_allocator);
     }
 
     return net;
+}
+
+neural_net_init :: (use nn: ^NeuralNet, layer_count: u32) {
+    layer_arena      = alloc.arena.make(context.allocator, 64 * 1024 * 1024); // 64 MiB
+    layer_allocator := alloc.arena.make_allocator(^layer_arena);
+
+    layers = memory.make_slice(Layer, layer_count, allocator = layer_allocator);
 }
 
 neural_net_free :: (use nn: ^NeuralNet) {
     alloc.arena.free(^layer_arena);
 }
 
-neural_net_forward :: (use nn: ^NeuralNet, input: [] float) {
+neural_net_forward :: (use nn: ^NeuralNet, input: [] f32) {
     assert(input.count == layers[0].neurons.count, "Input does not have the same size as the first layer.");
 
     for i: input.count do layers[0].neurons[i] = input[i];
@@ -41,11 +42,11 @@ neural_net_forward :: (use nn: ^NeuralNet, input: [] float) {
     }
 }
 
-neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] float) {
+neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] f32) {
     assert(layers[layers.count - 1].neurons.count == expected_output.count,
             "Expected output does not have the same size as the last layer.");
 
-    LEARNING_RATE :: cast(float) 0.01;
+    LEARNING_RATE :: cast(f32) 0.01;
 
     // Iterating backwards through the layers (hence the name "back propagation")
     // The reason this is necessary is because we need to know the derivatives of
@@ -55,20 +56,20 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] float) {
         defer i -= 1;
 
         // For every neuron, we need to calculate its corresponding "delta", which is
-        // kind of an abiguous term here. It specifically means the partial derivative
+        // kind of an ambiguous term here. It specifically means the partial derivative
         // of the the loss with respect to the weighted sum of the previous layers
         // neurons, plus a bias.
         for j: layers[i].neurons.count {
             sigmoid_value   := layers[i].neurons[j];
             d_sigmoid_value := layers[i].activation.backward(sigmoid_value, layers[i].pre_activation_neurons[j]);
 
-            // The last layer has its deriviate computed special, since it needs to capture
+            // The last layer has its derivative computed special, since it needs to capture
             // the derivative of the MSE function.
             if i == layers.count - 1 {
                 layers[i].deltas[j] = 2 * (expected_output[j] - sigmoid_value) * d_sigmoid_value / ~~expected_output.count;
 
             } else {
-                d_neuron: float = 0;
+                d_neuron: f32 = 0;
                 for k: layers[i + 1].neurons.count {
                     d_neuron += layers[i + 1].deltas[k] * layers[i + 1].weights[k][j];
                 }
@@ -92,18 +93,18 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] float) {
     }
 }
 
-neural_net_get_output :: (use nn: ^NeuralNet) -> [] float {
+neural_net_get_output :: (use nn: ^NeuralNet) -> [] f32 {
     return layers[layers.count - 1].neurons;
 }
 
-neural_net_loss :: (use nn: ^NeuralNet, expected_output: [] float) -> float {
+neural_net_loss :: (use nn: ^NeuralNet, expected_output: [] f32) -> f32 {
     // MSE loss
     assert(layers[layers.count - 1].neurons.count == expected_output.count,
             "Expected output does not have the same size as the last layer.");
 
     output := layers[layers.count - 1].neurons;
 
-    squared_sum: float = 0;
+    squared_sum: f32 = 0;
     for i: expected_output.count {
         diff := output[i] - expected_output[i];
         squared_sum += diff * diff;
@@ -115,36 +116,38 @@ neural_net_loss :: (use nn: ^NeuralNet, expected_output: [] float) -> float {
 
 
 Layer :: struct {
-    neurons                :   [] float;
-    pre_activation_neurons :   [] float;
-
-    biases  :   [] float;
-    weights : [][] float; // CLEANUP: Make this a rank 1 slice
-
-    deltas  :   [] float;
-
     use_bias   : bool;
+    is_input   : bool;
     activation : ActivationFunction;
+
+    biases  :   [] f32;
+    weights : [][] f32; // CLEANUP: Make this a rank 1 slice
+
+    neurons                : [] f32;
+    pre_activation_neurons : [] f32;
+
+    deltas  :   [] f32;
 }
 
-init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocator := context.allocator) {
-    neurons = memory.make_slice(float, layer_size, allocator);
-    pre_activation_neurons = memory.make_slice(float, layer_size, allocator);
+layer_init :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocator := context.allocator) {
+    neurons = memory.make_slice(f32, layer_size, allocator);
+    pre_activation_neurons = memory.make_slice(f32, layer_size, allocator);
 
     use_bias = true;
-    if use_bias {
-        biases = memory.make_slice(float, layer_size, allocator);
-    }
-
-    deltas = memory.make_slice(float, layer_size, allocator);
-
+    deltas = memory.make_slice(f32, layer_size, allocator);
     activation = sigmoid_activation;
 
-    if prev_layer_size > 0 {
-        weights = memory.make_slice(#type [] float, layer_size, allocator);
+    is_input = (prev_layer_size == 0);
+
+    if !is_input {
+        if use_bias {
+            biases = memory.make_slice(f32, layer_size, allocator);
+        }
+
+        weights = memory.make_slice(#type [] f32, layer_size, allocator);
 
         for ^weight: weights {
-            *weight = memory.make_slice(float, prev_layer_size, allocator);
+            *weight = memory.make_slice(f32, prev_layer_size, allocator);
         }
 
         randomize_weights_and_biases(layer);
@@ -154,12 +157,12 @@ init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
 randomize_weights_and_biases :: (use layer: ^Layer) {
     for ^weight: weights {
         for ^w: *weight {
-            *w = cast(float) random.float(-0.5f, 0.5f);
+            *w = cast(f32) random.float(-0.5f, 0.5f);
         }
     }
 
     if use_bias {
-        for ^bias: biases do *bias = cast(float) random.float(-0.5f, 0.5f);
+        for ^bias: biases do *bias = cast(f32) random.float(-0.5f, 0.5f);
     }
 }
 
@@ -178,40 +181,136 @@ layer_forward :: (use layer: ^Layer, prev_layer: ^Layer) {
 }
 
 
+Onyx_NN_Magic_Number :: 0x4E4E584F
 
+neural_net_save :: (use nn: ^NeuralNet, filename: str) {
+    err, output_file := io.open(filename, io.OpenMode.Write);
+    assert(err == io.Error.None, "Failed to open neural net save file for writing.");
+    defer io.stream_close(^output_file);
 
+    writer := io.binary_writer_make(^output_file);
 
+    // Magic string
+    io.binary_write_i32(^writer, Onyx_NN_Magic_Number);
 
+    // Number of layers
+    io.binary_write_i32(^writer, layers.count);
 
-ActivationFunction :: struct {
-    forward  : (x : float)           -> float;
-    backward : (fx: float, x: float) -> float;
+    for ^layer: layers {
+        io.binary_write_i32(^writer, layer.neurons.count);
+
+        io.binary_write_byte(^writer, cast(u8) layer.is_input);
+        if layer.is_input do continue;
+
+        io.binary_write_byte(^writer, cast(u8) layer.use_bias);
+        io.binary_write_byte(^writer, cast(u8) layer.activation.id);
+
+        if layer.use_bias {
+            io.binary_write_slice(^writer, layer.biases);
+        }
+
+        for ^weight: layer.weights {
+            io.binary_write_slice(^writer, *weight);
+        }
+    }
+}
+
+neural_net_load :: (filename: str) -> NeuralNet {
+    err, input_file := io.open(filename, io.OpenMode.Read);
+    assert(err == io.Error.None, "Failed to open neural net save file for reading.");
+    defer io.stream_close(^input_file);
+
+    reader := io.binary_reader_make(^input_file);
+
+    magic_number := io.binary_read_i32(^reader);
+    assert(magic_number == Onyx_NN_Magic_Number, "Magic number did not match!");
+
+    num_layers := io.binary_read_i32(^reader);
+
+    nn : NeuralNet;
+    neural_net_init(^nn, num_layers);
+
+    layer_allocator := alloc.arena.make_allocator(^nn.layer_arena);
+    prev_layer_size := 0;
+
+    for l: num_layers {
+        layer_size := io.binary_read_i32(^reader);
+        is_input   := cast(bool) io.binary_read_byte(^reader);
+
+        layer_init(^nn.layers[l], layer_size, prev_layer_size, layer_allocator);
+        if is_input do continue;
+
+        nn.layers[l].use_bias = cast(bool) io.binary_read_byte(^reader);
+
+        activation_id := cast(ActivationFunctionID) io.binary_read_byte(^reader);
+        nn.layers[l].activation = activation_function_from_id(activation_id);
+    }
 }
 
 
-sigmoid_activation := ActivationFunction.{ sigmoid, sigmoid_prime }
 
-sigmoid :: (x: float) -> float {
+
+
+
+
+
+
+// Solely used for serializing. Need a way to store the activation
+// functions uniquely and reproducibly.
+ActivationFunctionID :: enum (u8) {
+    Invalid            :: 0x00;
+    Sigmoid            :: 0x01;
+    Hyperbolic_Tangent :: 0x02;
+}
+
+activation_function_from_id :: (id: ActivationFunctionID) -> ActivationFunction {
+    switch id {
+        case ActivationFunctionID.Sigmoid do return sigmoid_activation;
+        case ActivationFunctionID.Hyperbolic_Tangent do return tanh_activation;
+
+        case #default do return ActivationFunction.{
+            ActivationFunctionID.Invalid,
+            null_proc, null_proc,
+        };
+    }
+}
+
+ActivationFunction :: struct {
+    id       : ActivationFunctionID;
+    forward  : (x : f32)           -> f32;
+    backward : (fx: f32, x: f32) -> f32;
+}
+
+
+sigmoid_activation := ActivationFunction.{
+    ActivationFunctionID.Sigmoid,
+    sigmoid, sigmoid_prime
+}
+
+sigmoid :: (x: f32) -> f32 {
     ex := math.exp(x);
     return ex / (1 + ex);
 }
 
-sigmoid_prime :: (sx: float, _: float) -> float {
+sigmoid_prime :: (sx: f32, _: f32) -> f32 {
     // This is defined in terms of the sigmoid of x
     // sigma'(x) = sigma(x) * (1 - sigma(x))
     return sx * (1 - sx);
 }
 
 
-tanh_activation := ActivationFunction.{ tanh, tanh_prime };
+tanh_activation := ActivationFunction.{
+    ActivationFunctionID.Hyperbolic_Tangent,
+    tanh, tanh_prime
+}
 
-tanh :: (x: float) -> float {
+tanh :: (x: f32) -> f32 {
     ex  := math.exp(x);
     emx := math.exp(-x);
     return (ex - emx) / (ex + emx);
 }
 
-tanh_prime :: (_: float, x: float) -> float {
+tanh_prime :: (_: f32, x: f32) -> f32 {
     ex  := math.exp(x);
     emx := math.exp(-x);
     s   := emx + ex;
