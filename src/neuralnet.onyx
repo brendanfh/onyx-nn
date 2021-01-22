@@ -138,7 +138,7 @@ init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
 
     deltas = memory.make_slice(float, layer_size, allocator);
 
-    activation = tanh_activation;
+    activation = sigmoid_activation;
 
     if prev_layer_size > 0 {
         weights = memory.make_slice(#type [] float, layer_size, allocator);
@@ -154,7 +154,7 @@ init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
 randomize_weights_and_biases :: (use layer: ^Layer) {
     for ^weight: weights {
         for ^w: *weight {
-            *w = cast(float) random.float(-1.0f, 1.0f);
+            *w = cast(float) random.float(-0.5f, 0.5f);
         }
     }
 
@@ -184,8 +184,8 @@ layer_forward :: (use layer: ^Layer, prev_layer: ^Layer) {
 
 
 ActivationFunction :: struct {
-    forward  : proc (x : float)           -> float;
-    backward : proc (fx: float, x: float) -> float;
+    forward  : (x : float)           -> float;
+    backward : (fx: float, x: float) -> float;
 }
 
 
