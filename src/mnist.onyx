@@ -5,16 +5,69 @@
 
 use package core
 
+MNIST_Data :: struct {
+    images : io.FileStream;
+    labels : io.FileStream;
+}
 
+mnist_data_make :: (image_path := "data/train-images-idx3-ubyte", label_path := "data/train-labels-idx1-ubyte") -> MNIST_Data {
+    mnist_data: MNIST_Data;
 
-// Load the data
-// Feed forward neural net
+    err : io.Error;
+    err, mnist_data.images = io.open(image_path);
+    assert(err == io.Error.None, "There was an error loading the image file");
 
-load_example :: (fs: ^io.FileStream, example: u32, out: [784] u8) {
+    err, mnist_data.labels = io.open(label_path);
+    assert(err == io.Error.None, "There was an error loading the label file");
+
+    return mnist_data;
+}
+
+mnist_data_close :: (use mnist_data: ^MNIST_Data) {
+    io.stream_close(^images);
+    io.stream_close(^labels);
+}
+
+load_example :: (use mnist_data: ^MNIST_Data, example: u32, out: [784] u8) -> u32 {
     location := 16 + example * 784;
-    _, bytes_read := io.stream_read_at(fs, location, ~~ out);
-    
+    _, bytes_read := io.stream_read_at(^images, location, ~~ out);
+
     assert(bytes_read == 784, "Incorrect number of bytes read.");
+
+    location = 8 + example;
+    label_buf : [1] u8;
+    _, bytes_read = io.stream_read_at(^labels, location, ~~ label_buf);
+    return ~~ label_buf[0];
+}
+
+stocastic_gradient_descent :: (nn: ^NeuralNet, mnist_data: ^MNIST_Data, training_examples := 50000) {
+    example : [784] u8;
+    expected := float.[ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
+    input := memory.make_slice(float, 784);
+    defer cfree(input.data);
+
+    for i: 10 {
+        for ex: training_examples {
+            label := load_example(mnist_data, ex, example);
+            expected[label] = 1.0f;
+            defer expected[label] = 0.0f;
+
+            // CLEANUP: The double cast that is necessary here is gross.
+            for i: input.count do input[i] = (cast(float) cast(u32) example[i]) / 255;
+
+            neural_net_forward(nn, ~~ input);
+            // output := neural_net_get_output(^nn);
+            // print_array(output);
+
+            if ex % 100 == 0 {
+                loss := neural_net_loss(nn, ~~ expected);
+                printf("MSE loss: %f\n", cast(f32) loss);
+            }
+
+            neural_net_backward(nn, ~~ expected);
+        }
+    }
+
 }
 
 main :: (args: [] cstr) {
@@ -22,37 +75,13 @@ main :: (args: [] cstr) {
     // main_allocator := context.allocator;
     // context.allocator = alloc.log.logging_allocator(^main_allocator);
 
-    random.set_seed(1234);
+    random.set_seed(5234);
 
-    err, training_example := io.open("data/train-images-idx3-ubyte");
-    if err != io.Error.None {
-        println("There was an error loading the file.");
-        return;
-    }
-    defer io.stream_close(^training_example);
-
-    example : [784] u8;
-    load_example(^training_example, 0, example);
+    mnist_data := mnist_data_make();
+    defer mnist_data_close(^mnist_data);
 
     nn := make_neural_net(28 * 28, 1000, 10);
     defer neural_net_free(^nn);
 
-    input := memory.make_slice(f32, 784);
-    defer cfree(input.data);
-
-    // CLEANUP: The double cast that is necessary here is gross.
-    for i: input.count do input[i] = (cast(f32) cast(u32) example[i]) / 255;
-
-    for i: 500 {
-        neural_net_forward(^nn, ~~ input);
-        output := neural_net_get_output(^nn);
-        for o: output do printf("%f ", o);
-        print("\n");
-
-        expected := f32.[ 0, 0, 0, 0, 0, 1, 0, 0, 0, 0 ];
-        loss := neural_net_loss(^nn, ~~ expected);
-        printf("MSE loss: %f\n", loss);
-
-        neural_net_backward(^nn, ~~ expected);
-    }
+    stocastic_gradient_descent(^nn, ^mnist_data);
 }
