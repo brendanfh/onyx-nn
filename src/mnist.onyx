@@ -56,17 +56,31 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, mnist_data: ^MNIST_Data, training
             for i: input.count do input[i] = (cast(float) cast(u32) example[i]) / 255;
 
             neural_net_forward(nn, ~~ input);
+            neural_net_backward(nn, ~~ expected);
+
             if ex % 100 == 0 {
-                print_array(expected);
+                print_colored_array :: (arr: [] $T) {
+                    greatest_idx := 0;
+                    for i: arr.count do if arr[i] > arr[greatest_idx] do greatest_idx = i;
+
+                    for i: arr.count {
+                        if i == greatest_idx {
+                            printf("\x1b[94m%f\x1b[0m ", arr[i]);
+                        } else {
+                            printf("%f ", arr[i]);
+                        }
+                    }
+                    print("\n");
+                }
+
+                print_colored_array(cast([] f32) expected);
 
                 output := neural_net_get_output(nn);
-                print_array(output);
+                print_colored_array(output);
 
                 loss := neural_net_loss(nn, ~~ expected);
                 printf("MSE loss: %f\n", cast(f32) loss);
             }
-
-            neural_net_backward(nn, ~~ expected);
         }
     }
 
