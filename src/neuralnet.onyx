@@ -97,6 +97,16 @@ neural_net_get_output :: (use nn: ^NeuralNet) -> [] f32 {
     return layers[layers.count - 1].neurons;
 }
 
+// :MNISTSpecific
+neural_net_get_prediction :: (use nn: ^NeuralNet) -> i32 {
+    output := neural_net_get_output(nn);
+
+    greatest_idx := 0;
+    for i: output.count do if output[i] > output[greatest_idx] do greatest_idx = i;
+
+    return greatest_idx;
+}
+
 neural_net_loss :: (use nn: ^NeuralNet, expected_output: [] f32) -> f32 {
     // MSE loss
     assert(layers[layers.count - 1].neurons.count == expected_output.count,
@@ -129,9 +139,11 @@ Layer :: struct {
     deltas  :   [] f32;
 }
 
-layer_init :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocator := context.allocator) {
+layer_init :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocator := context.allocator, allocate_weights_and_biases := true) {
     neurons = memory.make_slice(f32, layer_size, allocator);
     pre_activation_neurons = memory.make_slice(f32, layer_size, allocator);
+
+    weights = memory.make_slice(#type [] f32, layer_size, allocator);
 
     use_bias = true;
     deltas = memory.make_slice(f32, layer_size, allocator);
@@ -139,12 +151,10 @@ layer_init :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
 
     is_input = (prev_layer_size == 0);
 
-    if !is_input {
+    if !is_input && allocate_weights_and_biases {
         if use_bias {
             biases = memory.make_slice(f32, layer_size, allocator);
         }
-
-        weights = memory.make_slice(#type [] f32, layer_size, allocator);
 
         for ^weight: weights {
             *weight = memory.make_slice(f32, prev_layer_size, allocator);
@@ -237,14 +247,26 @@ neural_net_load :: (filename: str) -> NeuralNet {
         layer_size := io.binary_read_i32(^reader);
         is_input   := cast(bool) io.binary_read_byte(^reader);
 
-        layer_init(^nn.layers[l], layer_size, prev_layer_size, layer_allocator);
-        if is_input do continue;
+        layer_init(^nn.layers[l], layer_size, prev_layer_size, allocator = layer_allocator, allocate_weights_and_biases = false);
+        if !is_input {
+            nn.layers[l].use_bias = cast(bool) io.binary_read_byte(^reader);
 
-        nn.layers[l].use_bias = cast(bool) io.binary_read_byte(^reader);
+            activation_id := cast(ActivationFunctionID) io.binary_read_byte(^reader);
+            nn.layers[l].activation = activation_function_from_id(activation_id);
 
-        activation_id := cast(ActivationFunctionID) io.binary_read_byte(^reader);
-        nn.layers[l].activation = activation_function_from_id(activation_id);
+            if nn.layers[l].use_bias {
+                nn.layers[l].biases = io.binary_read_slice(^reader, f32, layer_size, allocator = layer_allocator);
+            }
+
+            for w: layer_size {
+                nn.layers[l].weights[w] = io.binary_read_slice(^reader, f32, prev_layer_size, allocator = layer_allocator);
+            }
+        }
+
+        prev_layer_size = layer_size;
     }
+
+    return nn;
 }
 
 
