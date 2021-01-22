@@ -60,12 +60,12 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] float) {
         // neurons, plus a bias.
         for j: layers[i].neurons.count {
             sigmoid_value   := layers[i].neurons[j];
-            d_sigmoid_value := sigmoid_value * (1 - sigmoid_value);
+            d_sigmoid_value := layers[i].activation.backward(sigmoid_value, layers[i].pre_activation_neurons[j]);
 
             // The last layer has its deriviate computed special, since it needs to capture
             // the derivative of the MSE function.
             if i == layers.count - 1 {
-                layers[i].deltas[j] = 2 * (expected_output[j] - sigmoid_value) * d_sigmoid_value;
+                layers[i].deltas[j] = 2 * (expected_output[j] - sigmoid_value) * d_sigmoid_value / ~~expected_output.count;
 
             } else {
                 d_neuron: float = 0;
@@ -81,10 +81,12 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] float) {
     // derivatives and update the biases and weights.
     for i: 1 .. layers.count {
         for j: layers[i].neurons.count {
-            layers[i].biases[j] += LEARNING_RATE * layers[i].deltas[j];
+            if layers[i].use_bias {
+                layers[i].biases[j] += LEARNING_RATE * layers[i].deltas[j];
+            }
 
             for k: layers[i].weights[j].count {
-                layers[i].weights[j][k] += LEARNING_RATE * layers[i].deltas[j] * layers[i].neurons[k];
+                layers[i].weights[j][k] += LEARNING_RATE * layers[i].deltas[j] * layers[i - 1].neurons[k];
             }
         }
     }
@@ -113,16 +115,30 @@ neural_net_loss :: (use nn: ^NeuralNet, expected_output: [] float) -> float {
 
 
 Layer :: struct {
-    neurons :   [] float;
+    neurons                :   [] float;
+    pre_activation_neurons :   [] float;
+
     biases  :   [] float;
     weights : [][] float; // CLEANUP: Make this a rank 1 slice
+
     deltas  :   [] float;
+
+    use_bias   : bool;
+    activation : ActivationFunction;
 }
 
 init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocator := context.allocator) {
     neurons = memory.make_slice(float, layer_size, allocator);
-    deltas  = memory.make_slice(float, layer_size, allocator);
-    biases  = memory.make_slice(float, layer_size, allocator);
+    pre_activation_neurons = memory.make_slice(float, layer_size, allocator);
+
+    use_bias = true;
+    if use_bias {
+        biases = memory.make_slice(float, layer_size, allocator);
+    }
+
+    deltas = memory.make_slice(float, layer_size, allocator);
+
+    activation = tanh_activation;
 
     if prev_layer_size > 0 {
         weights = memory.make_slice(#type [] float, layer_size, allocator);
@@ -138,29 +154,66 @@ init_layer :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
 randomize_weights_and_biases :: (use layer: ^Layer) {
     for ^weight: weights {
         for ^w: *weight {
-            *w = cast(float) random.float(-0.5f, -0.5f);
+            *w = cast(float) random.float(-1.0f, 1.0f);
         }
     }
 
-    for ^bias: biases do *bias = cast(float) random.float(-0.5f, 0.5f);
+    if use_bias {
+        for ^bias: biases do *bias = cast(float) random.float(-0.5f, 0.5f);
+    }
 }
 
 layer_forward :: (use layer: ^Layer, prev_layer: ^Layer) {
     for i: neurons.count {
-        neurons[i] = biases[i];
+        neurons[i] = 0;
+        if use_bias do neurons[i] = biases[i];
+
         for j: weights[i].count {
             neurons[i] += prev_layer.neurons[j] * weights[i][j];
         }
 
-        neurons[i] = sigmoid(neurons[i]);
+        pre_activation_neurons[i] = neurons[i];
+        neurons[i] = activation.forward(neurons[i]);
     }
 }
 
 
 
+
+
+
+
+ActivationFunction :: struct {
+    forward  : proc (x : float)           -> float;
+    backward : proc (fx: float, x: float) -> float;
+}
+
+
+sigmoid_activation := ActivationFunction.{ sigmoid, sigmoid_prime }
 
 sigmoid :: (x: float) -> float {
     ex := math.exp(x);
     return ex / (1 + ex);
 }
 
+sigmoid_prime :: (sx: float, _: float) -> float {
+    // This is defined in terms of the sigmoid of x
+    // sigma'(x) = sigma(x) * (1 - sigma(x))
+    return sx * (1 - sx);
+}
+
+
+tanh_activation := ActivationFunction.{ tanh, tanh_prime };
+
+tanh :: (x: float) -> float {
+    ex  := math.exp(x);
+    emx := math.exp(-x);
+    return (ex - emx) / (ex + emx);
+}
+
+tanh_prime :: (_: float, x: float) -> float {
+    ex  := math.exp(x);
+    emx := math.exp(-x);
+    s   := emx + ex;
+    return 4 / (s * s);
+}
