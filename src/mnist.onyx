@@ -100,7 +100,7 @@ main :: (args: [] cstr) {
     // main_allocator := context.allocator;
     // context.allocator = alloc.log.logging_allocator(^main_allocator);
 
-    nn := neural_net_load("data/dummy.nn");
+    nn := neural_net_load("data/test_1.nn");
     // nn := make_neural_net(28 * 28, 512, 256, 100, 10);
     defer neural_net_free(^nn);
 

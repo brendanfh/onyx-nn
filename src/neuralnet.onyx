@@ -201,13 +201,13 @@ neural_net_save :: (use nn: ^NeuralNet, filename: str) {
     writer := io.binary_writer_make(^output_file);
 
     // Magic string
-    io.binary_write_i32(^writer, Onyx_NN_Magic_Number);
+    io.binary_write(^writer, i32, Onyx_NN_Magic_Number);
 
     // Number of layers
-    io.binary_write_i32(^writer, layers.count);
+    io.binary_write(^writer, i32, layers.count);
 
     for ^layer: layers {
-        io.binary_write_i32(^writer, layer.neurons.count);
+        io.binary_write(^writer, i32, layer.neurons.count);
 
         io.binary_write_byte(^writer, cast(u8) layer.is_input);
         if layer.is_input do continue;
@@ -232,10 +232,10 @@ neural_net_load :: (filename: str) -> NeuralNet {
 
     reader := io.binary_reader_make(^input_file);
 
-    magic_number := io.binary_read_i32(^reader);
+    magic_number := io.binary_read(^reader, i32);
     assert(magic_number == Onyx_NN_Magic_Number, "Magic number did not match!");
 
-    num_layers := io.binary_read_i32(^reader);
+    num_layers := io.binary_read(^reader, i32);
 
     nn : NeuralNet;
     neural_net_init(^nn, num_layers);
@@ -244,7 +244,7 @@ neural_net_load :: (filename: str) -> NeuralNet {
     prev_layer_size := 0;
 
     for l: num_layers {
-        layer_size := io.binary_read_i32(^reader);
+        layer_size := io.binary_read(^reader, i32);
         is_input   := cast(bool) io.binary_read_byte(^reader);
 
         layer_init(^nn.layers[l], layer_size, prev_layer_size, allocator = layer_allocator, allocate_weights_and_biases = false);
