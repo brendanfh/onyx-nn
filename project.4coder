@@ -1,0 +1,32 @@
+version(1);
+project_name = "Onyx";
+
+patterns = {
+"*.onyx",
+"*.bat",
+"*.sh",
+"*.4coder",
+};
+blacklist_patterns = {
+".*",
+};
+load_paths_custom = {
+ {"."},
+};
+load_paths = {
+ { load_paths_custom, .os = "win"  },
+ { load_paths_custom, .os = "linux"},
+ { load_paths_custom, .os = "mac"  },
+};
+
+build_win32   = "\\dev\\onyx\\onyx.exe -V src\\mnist.onyx -o mnist.wasm";
+build_linux   = "/usr/bin/onyx -V src/mnist.onyx -o mnist.wasm";
+
+command_list = {
+ { .name = "Build",
+   .out = "*compilation*", .footer_panel = true, .save_dirty_files = true,
+   .cmd = { {build_win32, .os ="win"  },
+            {build_linux, .os ="linux"}, }, },
+};
+
+fkey_command[1] = "Build";

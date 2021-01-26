@@ -1,0 +1,23 @@
+Abstractions still needed:
+	* Optimizer
+		Currently, only SGD is implemented. It should be easy to add different
+		optimizers for the networks. A question to answer is should the optimizer
+		store the gradients computed in the back propagation, or should that be
+		stored on the layers? I'm leaning towards storing it on the layers.
+
+		Other optimizers:
+			- Adam
+			- AdaMax
+			- AdaGrad
+
+	* Criteria
+		- MSE (implemented)
+		- MAE
+		- BCE
+
+	* Data Loader
+		Each dataloader will different, but a common API should be added, so
+		there can be an automatic training system, that just pulls data from
+		the dataloader as it is needed. The dataloader then has the freedom
+		to cache or preload the data.
+
