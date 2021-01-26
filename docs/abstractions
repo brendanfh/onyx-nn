@@ -12,7 +12,7 @@ Abstractions still needed:
 
 	* Criteria
 		- MSE (implemented)
-		- MAE
+		- MAE (implemented)
 		- BCE
 
 	* Data Loader
@@ -20,4 +20,8 @@ Abstractions still needed:
 		there can be an automatic training system, that just pulls data from
 		the dataloader as it is needed. The dataloader then has the freedom
 		to cache or preload the data.
+
+		This is currently implemented in a very basic way with something that
+		behaves like an abstract class, but I think it is general enough to
+		work for the moment.
 

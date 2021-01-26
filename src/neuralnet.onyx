@@ -1,7 +1,7 @@
 use package core
 
 NeuralNet :: struct {
-    layers  : [] Layer;
+    layers : [] Layer;
 
     // CLEANUP: Move these to core.alloc, so the nesting isn't nearly as terrible.
     layer_arena : alloc.arena.ArenaState;
@@ -426,4 +426,37 @@ mean_absolute_error := Criterion.{
             deltas[j] /= cast(f32) expected.count;
         }
     },
+}
+
+
+
+//
+// DataLoader (move this to somewhere else)
+//
+// Very basic datastructure that represents something you can loader data out of.
+// Specifically, an input and output at a particular index.
+
+DataLoader :: struct {
+    vtable : ^DataLoader_Functions;
+}
+
+DataLoader_Functions :: struct {
+    get_count : (^DataLoader) -> u32;
+    
+    // I don't like how these have to be floats, but they seem reasonable for now.
+    get_item  : (^DataLoader, index: u32, input: [] f32, output: [] f32) -> bool;
+}
+
+dataloader_get_count :: (use data: ^DataLoader) -> u32 {
+    if vtable == null do return 0;
+    if vtable.get_count == null_proc do return 0;
+    
+    return vtable.get_count(data);
+}
+
+dataloader_get_item :: (use data: ^DataLoader, index: u32, input: [] f32, output: [] f32) -> bool {
+    if vtable == null do return false;
+    if vtable.get_item == null_proc do return false;
+    
+    return vtable.get_item(data, index, input, output);
 }
