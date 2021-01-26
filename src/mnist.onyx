@@ -58,7 +58,7 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, mnist_data: ^MNIST_Data, training
             for i: input.count do input[i] = (cast(f32) cast(u32) example[i]) / 255;
 
             neural_net_forward(nn, ~~ input);
-            neural_net_backward(nn, ~~ expected);
+            neural_net_backward(nn, ~~ expected, mean_squared_error);
 
             prediction := neural_net_get_prediction(nn);
             if prediction == label do past_100_correct += 1;
@@ -86,19 +86,18 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, mnist_data: ^MNIST_Data, training
                 print_colored_array(cast([] f32) expected, label, color);
                 print_colored_array(output, prediction, color);
 
-                loss := neural_net_loss(nn, ~~ expected);
-                printf("MSE loss: %f     Correct: %i / 100\n", cast(f32) loss, past_100_correct);
+                loss := neural_net_loss(nn, ~~ expected, mean_squared_error);
+                printf("Loss: %f         Correct: %i / 100\n", cast(f32) loss, past_100_correct);
 
                 past_100_correct = 0;
 
                 if ex % 10000 == 0 {
                     println("Saving neural network...");
-                    neural_net_save(nn, "data/test_2.nn");
+                    neural_net_save(nn, "data/test_3.nn");
                 }
             }
         }
     }
-
 }
 
 main :: (args: [] cstr) {
@@ -106,8 +105,8 @@ main :: (args: [] cstr) {
     // main_allocator := context.allocator;
     // context.allocator = alloc.log.logging_allocator(^main_allocator);
 
-    nn := neural_net_load("data/test_2.nn");
-    // nn := make_neural_net(28 * 28, 512, 256, 100, 10);
+//    nn := neural_net_load("data/test_2.nn");
+    nn := make_neural_net(28 * 28, 512, 256, 100, 10);
     defer neural_net_free(^nn);
 
     random.set_seed(5234);

@@ -42,7 +42,7 @@ neural_net_forward :: (use nn: ^NeuralNet, input: [] f32) {
     }
 }
 
-neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] f32) {
+neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: Criterion) {
     assert(layers[layers.count - 1].neurons.count == expected_output.count,
             "Expected output does not have the same size as the last layer.");
 
@@ -59,27 +59,33 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] f32) {
         // kind of an ambiguous term here. It specifically means the partial derivative
         // of the the loss with respect to the weighted sum of the previous layers
         // neurons, plus a bias.
-        for j: layers[i].neurons.count {
-            sigmoid_value   := layers[i].neurons[j];
-            d_sigmoid_value := layers[i].activation.backward(sigmoid_value, layers[i].pre_activation_neurons[j]);
-
-            // The last layer has its derivative computed special, since it needs to capture
-            // the derivative of the MSE function.
-            if i == layers.count - 1 {
-                layers[i].deltas[j] = 2 * (expected_output[j] - sigmoid_value) * d_sigmoid_value / ~~expected_output.count;
-
-            } else {
+        
+        // The last layer has its derivative computed special, since it needs to capture
+        // the derivative of the criterion function.
+        if i == layers.count - 1 {
+            criterion.compute_deltas(layers[i].deltas, layers[i].neurons, expected_output);
+            
+        } else {
+            for j: layers[i].neurons.count {
                 d_neuron: f32 = 0;
                 for k: layers[i + 1].neurons.count {
                     d_neuron += layers[i + 1].deltas[k] * layers[i + 1].weights[k][j];
                 }
-                layers[i].deltas[j] = d_neuron * d_sigmoid_value;
+
+                layers[i].deltas[j] = d_neuron;
             }
+        }
+        
+        // Here we multiply by the derivative of the activation function for each neuron.
+        for j: layers[i].deltas.count {
+            d_sigmoid_value := layers[i].activation.backward(layers[i].neurons[j], layers[i].pre_activation_neurons[j]);
+            layers[i].deltas[j] *= d_sigmoid_value;
         }
     }
 
     // Once all the deltas are computed, we can use them to compute the actual
     // derivatives and update the biases and weights.
+    // This part is responsible for optimization, and can easily be swapped out.
     for i: 1 .. layers.count {
         for j: layers[i].neurons.count {
             if layers[i].use_bias {
@@ -107,21 +113,8 @@ neural_net_get_prediction :: (use nn: ^NeuralNet) -> i32 {
     return greatest_idx;
 }
 
-neural_net_loss :: (use nn: ^NeuralNet, expected_output: [] f32) -> f32 {
-    // MSE loss
-    assert(layers[layers.count - 1].neurons.count == expected_output.count,
-            "Expected output does not have the same size as the last layer.");
-
-    output := layers[layers.count - 1].neurons;
-
-    squared_sum: f32 = 0;
-    for i: expected_output.count {
-        diff := output[i] - expected_output[i];
-        squared_sum += diff * diff;
-    }
-
-    loss := squared_sum / ~~expected_output.count;
-    return loss;
+neural_net_loss :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: Criterion) -> f32 {
+    return criterion.compute_loss(layers[layers.count - 1].neurons, expected_output);
 }
 
 
@@ -136,7 +129,8 @@ Layer :: struct {
     neurons                : [] f32;
     pre_activation_neurons : [] f32;
 
-    deltas  :   [] f32;
+    // The deltas could possibly be stored in the optimizer.
+    deltas : [] f32;
 }
 
 layer_init :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocator := context.allocator, allocate_weights_and_biases := true) {
@@ -275,6 +269,13 @@ neural_net_load :: (filename: str) -> NeuralNet {
 
 
 
+//
+// Activation functions
+//     The activation functions that are currently implemented are:
+//         - Sigmoid
+//         - Hyperbolic Tangent
+//         - ReLU
+//
 
 
 // Solely used for serializing. Need a way to store the activation
@@ -283,12 +284,16 @@ ActivationFunctionID :: enum (u8) {
     Invalid            :: 0x00;
     Sigmoid            :: 0x01;
     Hyperbolic_Tangent :: 0x02;
+    ReLU               :: 0x03;
 }
 
 activation_function_from_id :: (id: ActivationFunctionID) -> ActivationFunction {
+    use ActivationFunctionID;
+    
     switch id {
-        case ActivationFunctionID.Sigmoid do return sigmoid_activation;
-        case ActivationFunctionID.Hyperbolic_Tangent do return tanh_activation;
+        case Sigmoid            do return sigmoid_activation;
+        case Hyperbolic_Tangent do return tanh_activation;
+        case ReLU               do return relu_activation;
 
         case #default do return ActivationFunction.{
             ActivationFunctionID.Invalid,
@@ -299,7 +304,7 @@ activation_function_from_id :: (id: ActivationFunctionID) -> ActivationFunction 
 
 ActivationFunction :: struct {
     id       : ActivationFunctionID;
-    forward  : (x : f32)           -> f32;
+    forward  : (x : f32)         -> f32;
     backward : (fx: f32, x: f32) -> f32;
 }
 
@@ -337,4 +342,88 @@ tanh_prime :: (_: f32, x: f32) -> f32 {
     emx := math.exp(-x);
     s   := emx + ex;
     return 4 / (s * s);
+}
+
+
+relu_activation := ActivationFunction.{
+    ActivationFunctionID.ReLU,
+    relu, relu_prime
+}
+
+relu :: (x: f32) -> f32 {
+    if x < 0 do return 0;
+    return x;
+}
+
+relu_prime :: (rx: f32, _: f32) -> f32 {
+    if rx > 0 do return 1;
+    return 0;
+}
+
+
+//
+// Criteria
+//     Currently, these are the implemented criteria:
+//         - MSE (Mean Squared Error)
+//         - MAE (Mean Absolute Error)
+//         - BCE (Binary Cross Entropy)
+//
+
+Criterion :: struct {
+    compute_loss   : (predictions: [] f32, expected: [] f32) -> f32;
+    
+    // `deltas` is an out parameter that holds the derivatives.
+    compute_deltas : (deltas: [] f32, predictions: [] f32, expected: [] f32) -> void;
+}
+
+mean_squared_error := Criterion.{
+    compute_loss = (prediction: [] f32, expected: [] f32) -> f32 {
+        assert(prediction.count == expected.count, "Expected output does not have the same size as predictions.");
+                
+        squared_sum: f32 = 0;
+        for i: expected.count {
+            diff := prediction[i] - expected[i];
+            squared_sum += diff * diff;
+        }
+        
+        loss := squared_sum / ~~expected.count;
+        return loss;
+    },
+    
+    compute_deltas = (deltas: [] f32, predictions: [] f32, expected: [] f32) {
+        // Leaving the assert turned off for right now.
+        // assert(predictions.count == expected.count && expected.count == deltas.count, "Expected output does not have the same size as predictions.");
+        
+        for j: deltas.count {
+            deltas[j] = 2 * (expected[j] - predictions[j]) / ~~expected.count;
+        }
+    },
+}
+
+mean_absolute_error := Criterion.{
+    compute_loss = (prediction: [] f32, expected: [] f32) -> f32 {
+        assert(prediction.count == expected.count, "Expected output does not have the same size as predictions.");
+        
+        squared_sum: f32 = 0;
+        for i: expected.count {
+            diff := prediction[i] - expected[i];
+            squared_sum += math.abs(diff);
+        }
+        
+        loss := squared_sum / ~~expected.count;
+        return loss;
+    },
+    
+    compute_deltas = (deltas: [] f32, predictions: [] f32, expected: [] f32) {
+        // Leaving the assert turned off for right now.
+        // assert(predictions.count == expected.count, "Expected output does not have the same size as predictions.");
+        
+        for j: deltas.count {
+            deltas[j] = 1.0f;
+            if expected[j] < predictions[j] do deltas[j] = -1.0f;
+            
+            // Technically, this division should be here, but it doesn't appear to be helping the gradient descent.
+            deltas[j] /= cast(f32) expected.count;
+        }
+    },
 }
