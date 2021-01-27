@@ -141,8 +141,6 @@ layer_init :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
     neurons = memory.make_slice(f32, layer_size, allocator);
     pre_activation_neurons = memory.make_slice(f32, layer_size, allocator);
 
-    weights = memory.make_slice(#type [] f32, layer_size, allocator);
-
     use_bias = true;
     deltas = memory.make_slice(f32, layer_size, allocator);
     activation = sigmoid_activation;
@@ -153,7 +151,8 @@ layer_init :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
         if use_bias {
             biases = memory.make_slice(f32, layer_size, allocator);
         }
-
+        
+        weights = memory.make_slice(#type [] f32, layer_size, allocator);
         for ^weight: weights {
             *weight = memory.make_slice(f32, prev_layer_size, allocator);
         }

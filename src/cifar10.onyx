@@ -5,6 +5,8 @@
 
 use package core
 
+// NOTE(Brendan Hansen): Currently, this supports only loading one of the dataset files,
+// even through there are 6 of them.
 CIFAR10_DataLoader :: struct {
     use data : DataLoader;
     
@@ -42,7 +44,14 @@ cifar10_dataloader_functions := DataLoader_Functions.{
         _, bytes_read := io.stream_read_at(^data_file, location, ~~ sample);
         
         label := ~~sample[0];
-        // TODO(Brendan Hansen): NOT DONE
+        for ^o: output do *o = 0;
+        output[cast(u32) label] = 1;
+        
+        for i: 3072 {
+            input[i] = (cast(f32) cast(u32) sample[i + 1]) / 255;
+        }
+        
+        return true;
     }
 };
 
@@ -96,22 +105,33 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, dataloader: ^DataLoader, criterio
                 printf("Loss: %f         Correct: %i / 100\n", cast(f32) loss, past_100_correct);
                 
                 past_100_correct = 0;
-                
-                /*
-                if ex % 10000 == 0 {
+               
+                if ex % 1000 == 0 {
                     println("Saving neural network...");
-                    neural_net_save(nn, "data/test_4.nn");
+                    neural_net_save(nn, output_file);
                 }
-                */
             }
         }
     }
 }
 
+// :Cleanup
+output_file := "data/tmp.nn"
 
 main :: (args: [] cstr) {
-    println("Hello World!");
+    if args.count > 1 {
+        output_file = string.make(args[0]);
+    }
+    
+    printf("Network save location: %s\n", output_file);
+    
+    random.set_seed(5432);
     
     cifar10_dataloader := cifar10_create();
     defer cifar10_close(^cifar10_dataloader);
+    
+    nn := make_neural_net(3072, 1024, 256, 10);
+    defer neural_net_free(^nn);
+    
+    stocastic_gradient_descent(^nn, ^cifar10_dataloader);
 }
