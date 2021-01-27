@@ -77,6 +77,8 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, dataloader: ^DataLoader, criterio
             neural_net_forward(nn, ~~ input);
             neural_net_backward(nn, ~~ expected, criterion);
             
+            // The optimizing step should be put here.
+            
             label, _   := array.greatest(expected);
             prediction := neural_net_get_prediction(nn);
             if prediction == label do past_100_correct += 1;
@@ -108,11 +110,13 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, dataloader: ^DataLoader, criterio
                 printf("Loss: %f         Correct: %i / 100\n", cast(f32) loss, past_100_correct);
 
                 past_100_correct = 0;
-
+                
+                /*
                 if ex % 10000 == 0 {
                     println("Saving neural network...");
-                    neural_net_save(nn, "data/test_3.nn");
+                    neural_net_save(nn, "data/test_4.nn");
                 }
+                */
             }
         }
     }
@@ -123,8 +127,8 @@ main :: (args: [] cstr) {
     // main_allocator := context.allocator;
     // context.allocator = alloc.log.logging_allocator(^main_allocator);
 
-//    nn := neural_net_load("data/test_2.nn");
-    nn := make_neural_net(28 * 28, 1024, 256, 100, 10);
+    //nn := neural_net_load("data/test_3.nn");
+    nn := make_neural_net(28 * 28, 512, 256, 100, 10);
     defer neural_net_free(^nn);
 
     random.set_seed(5234);

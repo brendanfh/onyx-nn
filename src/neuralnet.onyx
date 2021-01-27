@@ -1,9 +1,14 @@
 use package core
 
+//
+// General purpose Multi-Layer Perceptron (MLP)
+//
+
 NeuralNet :: struct {
     layers : [] Layer;
 
-    // CLEANUP: Move these to core.alloc, so the nesting isn't nearly as terrible.
+    // CLEANUP(Brendan Hansen): Move all allocators to core.alloc,
+    // so the nesting isn't nearly as terrible.
     layer_arena : alloc.arena.ArenaState;
 }
 
@@ -47,14 +52,16 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: 
             "Expected output does not have the same size as the last layer.");
 
     LEARNING_RATE :: cast(f32) 0.01;
-
+    
+    // NOTE(Brendan Hansen):
     // Iterating backwards through the layers (hence the name "back propagation")
     // The reason this is necessary is because we need to know the derivatives of
     // neurons in the next layer to compute the derivatives of the current layers
     // neurons. This is what makes this algorithm not exponentially slow.
     while i := layers.count - 1; i >= 1 {
         defer i -= 1;
-
+        
+        // NOTE(Brendan Hansen):
         // For every neuron, we need to calculate its corresponding "delta", which is
         // kind of an ambiguous term here. It specifically means the partial derivative
         // of the the loss with respect to the weighted sum of the previous layers
@@ -65,24 +72,21 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: 
         if i == layers.count - 1 {
             criterion.compute_deltas(layers[i].deltas, layers[i].neurons, expected_output);
             
-        } else {
-            for j: layers[i].neurons.count {
-                d_neuron: f32 = 0;
-                for k: layers[i + 1].neurons.count {
-                    d_neuron += layers[i + 1].deltas[k] * layers[i + 1].weights[k][j];
-                }
-
-                layers[i].deltas[j] = d_neuron;
+            // NOTE(Brendan Hansen): 
+            // Here we multiply by the derivative of the activation function for each neuron.
+            // This is done in the layer_backward function, but since that isn't called for the
+            // last layer, it is necessary to do it here.
+            for j: layers[i].deltas.count {
+                d_sigmoid_value := layers[i].activation.backward(layers[i].neurons[j], layers[i].pre_activation_neurons[j]);
+                layers[i].deltas[j] *= d_sigmoid_value;
             }
-        }
-        
-        // Here we multiply by the derivative of the activation function for each neuron.
-        for j: layers[i].deltas.count {
-            d_sigmoid_value := layers[i].activation.backward(layers[i].neurons[j], layers[i].pre_activation_neurons[j]);
-            layers[i].deltas[j] *= d_sigmoid_value;
+            
+        } else {
+            layer_backward(^layers[i], ^layers[i + 1]);
         }
     }
-
+    
+    // NOTE(Brendan Hansen): 
     // Once all the deltas are computed, we can use them to compute the actual
     // derivatives and update the biases and weights.
     // This part is responsible for optimization, and can easily be swapped out.
@@ -181,6 +185,21 @@ layer_forward :: (use layer: ^Layer, prev_layer: ^Layer) {
 
         pre_activation_neurons[i] = neurons[i];
         neurons[i] = activation.forward(neurons[i]);
+    }
+}
+
+layer_backward :: (use layer: ^Layer, next_layer: ^Layer) {
+    for j: neurons.count {
+        d_neuron: f32 = 0;
+        for k: next_layer.neurons.count {
+            d_neuron += next_layer.deltas[k] * next_layer.weights[k][j];
+        }
+        
+        d_sigmoid_value := activation.backward(neurons[j], pre_activation_neurons[j]);
+        
+        // This could easily become '+=', which would allow for an accumulated gradient,
+        // before taking a step.
+        deltas[j] = d_neuron * d_sigmoid_value;
     }
 }
 
@@ -391,9 +410,6 @@ mean_squared_error := Criterion.{
     },
     
     compute_deltas = (deltas: [] f32, predictions: [] f32, expected: [] f32) {
-        // Leaving the assert turned off for right now.
-        // assert(predictions.count == expected.count && expected.count == deltas.count, "Expected output does not have the same size as predictions.");
-        
         for j: deltas.count {
             deltas[j] = 2 * (expected[j] - predictions[j]) / ~~expected.count;
         }
@@ -415,13 +431,11 @@ mean_absolute_error := Criterion.{
     },
     
     compute_deltas = (deltas: [] f32, predictions: [] f32, expected: [] f32) {
-        // Leaving the assert turned off for right now.
-        // assert(predictions.count == expected.count, "Expected output does not have the same size as predictions.");
-        
         for j: deltas.count {
             deltas[j] = 1.0f;
             if expected[j] < predictions[j] do deltas[j] = -1.0f;
             
+            // TODO(Brendan Hansen):
             // Technically, this division should be here, but it doesn't appear to be helping the gradient descent.
             deltas[j] /= cast(f32) expected.count;
         }
@@ -435,6 +449,7 @@ mean_absolute_error := Criterion.{
 //
 // Very basic datastructure that represents something you can loader data out of.
 // Specifically, an input and output at a particular index.
+//
 
 DataLoader :: struct {
     vtable : ^DataLoader_Functions;
