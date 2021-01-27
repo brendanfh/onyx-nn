@@ -120,7 +120,7 @@ output_file := "data/tmp.nn"
 
 main :: (args: [] cstr) {
     if args.count > 1 {
-        output_file = string.make(args[0]);
+        output_file = string.make(args[1]);
     }
     
     printf("Network save location: %s\n", output_file);
