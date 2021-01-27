@@ -1,0 +1,117 @@
+#load "core/std/wasi"
+
+#load_path "src"
+#load "neuralnet"
+
+use package core
+
+CIFAR10_DataLoader :: struct {
+    use data : DataLoader;
+    
+    data_file : io.FileStream;
+}
+
+cifar10_create :: (file_location := "data/cifar-10-batches-bin/data_batch_1.bin") -> CIFAR10_DataLoader {
+    dataset : CIFAR10_DataLoader;
+    dataset.vtable = ^cifar10_dataloader_functions;
+    
+    err : io.Error;
+    err, dataset.data_file = io.open(file_location);
+    assert(err == io.Error.None, "Failed to open CIFAR10 dataset file");
+    
+    return dataset;
+}
+
+cifar10_close :: (use dataset: ^CIFAR10_DataLoader) {
+    io.stream_close(^data_file);
+}
+
+cifar10_dataloader_functions := DataLoader_Functions.{
+    get_count = (use dataset: ^CIFAR10_DataLoader) -> u32 {
+        return 10000;
+    },
+    
+    get_item = (use dataset: ^CIFAR10_DataLoader, index: u32, input: [] f32, output: [] f32) -> bool {
+        assert(input.count  == 3072, "Input slice was of wrong size. Expected 3072.");
+        assert(output.count == 10,   "Output slice was of wrong size. Expected 10.");
+        
+        if index > 10000 do return false;
+        
+        location := index * (3072 + 1);
+        sample : [3072 + 1] u8;
+        _, bytes_read := io.stream_read_at(^data_file, location, ~~ sample);
+        
+        label := ~~sample[0];
+        // TODO(Brendan Hansen): NOT DONE
+    }
+};
+
+
+// TODO(Brendan Hansen): This was copied from mnist.onyx. There should be an easy way to abstract these.
+stocastic_gradient_descent :: (nn: ^NeuralNet, dataloader: ^DataLoader, criterion: Criterion = mean_squared_error) {
+    input := memory.make_slice(f32, 3072);
+    defer cfree(input.data);
+    expected : [10] f32;
+    
+    training_example_count := dataloader_get_count(dataloader);
+    
+    past_100_correct := 0;
+    for i: 10 {
+        for ex: training_example_count {
+            dataloader_get_item(dataloader, ex, input, ~~ expected);
+            
+            neural_net_forward(nn, ~~ input);
+            neural_net_backward(nn, ~~ expected, criterion);
+            
+            // The optimizing step should be put here.
+            
+            label, _   := array.greatest(expected);
+            prediction := neural_net_get_prediction(nn);
+            if prediction == label do past_100_correct += 1;
+            
+            if ex % 100 == 0 {
+                print_colored_array :: (arr: [] $T, color_idx: i32, color_code := 94) {
+                    for i: arr.count {
+                        if i == color_idx {
+                            printf("\x1b[%im", color_code);
+                            print(arr[i]);
+                            print("\x1b[0m ");
+                        } else {
+                            print(arr[i]);
+                            print(" ");
+                        }
+                    }
+                    print("\n");
+                }
+                
+                color := 94;
+                if prediction != label do color = 91;
+                
+                output := neural_net_get_output(nn);
+                
+                print_colored_array(cast([] f32) expected, label, color);
+                print_colored_array(output, prediction, color);
+                
+                loss := neural_net_loss(nn, ~~ expected, criterion);
+                printf("Loss: %f         Correct: %i / 100\n", cast(f32) loss, past_100_correct);
+                
+                past_100_correct = 0;
+                
+                /*
+                if ex % 10000 == 0 {
+                    println("Saving neural network...");
+                    neural_net_save(nn, "data/test_4.nn");
+                }
+                */
+            }
+        }
+    }
+}
+
+
+main :: (args: [] cstr) {
+    println("Hello World!");
+    
+    cifar10_dataloader := cifar10_create();
+    defer cifar10_close(^cifar10_dataloader);
+}
