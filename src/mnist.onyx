@@ -5,12 +5,19 @@
 
 use package core
 
-
 MNIST_DataLoader :: struct {
-    use base : DataLoader;
+    use base : DataLoader(MNIST_Sample);
     
     images : io.FileStream;
     labels : io.FileStream;
+}
+
+MNIST_Sample :: struct {
+    // NOTE(Brendan Hansen): Expected to be 28 * 28 elements in size
+    input : [] f32;
+    
+    // NOTE(Brendan Hansen): Expected to be 10 elements in size
+    output : [] f32;
 }
 
 mnist_data_make :: (image_path := "data/train-images-idx3-ubyte", label_path := "data/train-labels-idx1-ubyte") -> MNIST_DataLoader {
@@ -32,12 +39,12 @@ mnist_data_close :: (use mnist_data: ^MNIST_DataLoader) {
     io.stream_close(^labels);
 }
 
-mnist_dataloader_functions := DataLoader_Functions.{
+mnist_dataloader_functions := <DataLoader_Functions(MNIST_Sample)>.{
     get_count = (use data: ^MNIST_DataLoader) -> u32 {
         return 50000;
     },
     
-    get_item  = (use data: ^MNIST_DataLoader, index: u32, input: [] f32, output: [] f32) -> bool {
+    get_item  = (use data: ^MNIST_DataLoader, index: u32, use sample: ^MNIST_Sample) -> bool {
         assert(input.count  == 28 * 28, "Input slice was of wrong size. Expected 784.");
         assert(output.count == 10,      "Output slice was of wrong size. Expected 10.");
         
@@ -61,10 +68,13 @@ mnist_dataloader_functions := DataLoader_Functions.{
     }
 }
 
-train :: (nn: ^NeuralNet, dataloader: ^DataLoader, optimizer: ^Optimizer, criterion: Criterion = mean_squared_error) {
-    input := memory.make_slice(f32, 784);
-    defer cfree(input.data);
-    expected : [10] f32;
+// TODO(Brendan Hansen): Generalize this to all data types 
+train :: (nn: ^NeuralNet, dataloader: ^DataLoader(MNIST_Sample), optimizer: ^Optimizer, criterion: Criterion = mean_squared_error) {
+    sample : MNIST_Sample;
+    sample.input  = memory.make_slice(f32, 784);
+    sample.output = memory.make_slice(f32, 10);
+    defer cfree(sample.input.data);
+    defer cfree(sample.output.data);
 
     training_example_count := dataloader_get_count(dataloader);
     
@@ -72,20 +82,16 @@ train :: (nn: ^NeuralNet, dataloader: ^DataLoader, optimizer: ^Optimizer, criter
     for i: 10 {
         printf("Staring epoch %i ===================================\n", i);
         for ex: training_example_count {
-            dataloader_get_item(dataloader, ex, input, ~~ expected);
+            dataloader_get_item(dataloader, ex, ^sample);
             
-            // NOTE(Brendan Hansen): Currently, zeroing the gradient is not
-            // necessary because neural_net_backward replaces the gradient,
-            // in other words it doesn't add to the existing gradient.
-            // optimizer_zero_gradient(optimizer);
-            
-            neural_net_forward(nn, ~~ input);
-            neural_net_backward(nn, ~~ expected, criterion);
+            optimizer_zero_gradient(optimizer);
+            neural_net_forward(nn, ~~ sample.input);
+            neural_net_backward(nn, ~~ sample.output, criterion);
             optimizer_step(optimizer);
 
 
             // NOTE(Brendan Hansen): Prediction printing and tracking.
-            label, _   := array.greatest(expected);
+            label, _   := array.greatest(sample.output);
             prediction := neural_net_get_prediction(nn);
             if prediction == label do past_100_correct += 1;
 
@@ -109,10 +115,10 @@ train :: (nn: ^NeuralNet, dataloader: ^DataLoader, optimizer: ^Optimizer, criter
 
                 output := neural_net_get_output(nn);
 
-                print_colored_array(cast([] f32) expected, label, color);
+                print_colored_array(sample.output, label, color);
                 print_colored_array(output, prediction, color);
 
-                loss := neural_net_loss(nn, ~~ expected, criterion);
+                loss := neural_net_loss(nn, sample.output, criterion);
                 printf("Loss: %f         Correct: %i / 100\n", cast(f32) loss, past_100_correct);
 
                 past_100_correct = 0;

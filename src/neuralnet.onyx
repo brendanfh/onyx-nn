@@ -101,12 +101,12 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: 
     for i: 1 .. layers.count {
         for j: layers[i].neurons.count {
             if layers[i].use_bias {
-                layers[i].biases[j].delta = layers[i].deltas[j];
+                layers[i].biases[j].delta += layers[i].deltas[j];
             }
 
             prev_layer_count := layers[i - 1].neurons.count;
             for k: prev_layer_count {
-                layers[i].weights[j * prev_layer_count + k].delta = layers[i].deltas[j] * layers[i - 1].neurons[k];
+                layers[i].weights[j * prev_layer_count + k].delta += layers[i].deltas[j] * layers[i - 1].neurons[k];
             }
         }
     }
@@ -234,9 +234,14 @@ neural_net_save :: (use nn: ^NeuralNet, filename: str) {
 
         io.binary_write_byte(^writer, cast(u8) layer.use_bias);
         io.binary_write_byte(^writer, cast(u8) layer.activation.id);
-
+        
+        // TODO(Brendan Hansen): These are so slow because of the enormous
+        // amount of writes that have to happen. I would like to write them
+        // in bulk, but the problem is that the data that needs to be stored
+        // is not contiguous in memory because of AOS style of variables. If
+        // that could be changed to a SOA style, the saving and loading process
+        // here could be made much much faster.
         if layer.use_bias {
-//            io.binary_write_slice(^writer, layer.biases);
             for ^bias: layer.biases {
                 io.binary_write(^writer, f32, ^bias.value);
             }
@@ -465,29 +470,29 @@ mean_absolute_error := Criterion.{
 // Specifically, an input and output at a particular index.
 //
 
-DataLoader :: struct {
-    vtable : ^DataLoader_Functions;
+DataLoader :: struct (Sample_Type: type_expr) {
+    vtable : ^DataLoader_Functions(Sample_Type);
 }
 
-DataLoader_Functions :: struct {
-    get_count : (^DataLoader) -> u32;
+DataLoader_Functions :: struct (Sample_Type: type_expr) {
+    get_count : (^DataLoader(Sample_Type)) -> u32;
     
     // I don't like how these have to be floats, but they seem reasonable for now.
-    get_item  : (^DataLoader, index: u32, input: [] f32, output: [] f32) -> bool;
+    get_item  : (^DataLoader(Sample_Type), index: u32, sample: ^Sample_Type) -> bool;
 }
 
-dataloader_get_count :: (use data: ^DataLoader) -> u32 {
+dataloader_get_count :: (use data: ^DataLoader($Sample_Type)) -> u32 {
     if vtable == null do return 0;
     if vtable.get_count == null_proc do return 0;
     
     return vtable.get_count(data);
 }
 
-dataloader_get_item :: (use data: ^DataLoader, index: u32, input: [] f32, output: [] f32) -> bool {
+dataloader_get_item :: (use data: ^DataLoader($Sample_Type), index: u32, sample: ^Sample_Type) -> bool {
     if vtable == null do return false;
     if vtable.get_item == null_proc do return false;
     
-    return vtable.get_item(data, index, input, output);
+    return vtable.get_item(data, index, sample);
 }
 
 
@@ -561,7 +566,7 @@ sgd_optimizer_create :: (nn: ^NeuralNet, learning_rate := 0.01f, allocator := co
     sgd.vtable = ^sgd_optimizer_vtable;
     optimizer_init(^sgd, nn, allocator);
 
-    learning_rate = learning_rate;
+    sgd.learning_rate = learning_rate;
 
     return sgd;
 }
