@@ -1,5 +1,15 @@
 use package core
 
+
+//
+// Variable
+//
+// TODO(Brendan Hansen): Document this better
+Variable :: struct {
+    value : f32;
+    delta : f32;
+}
+
 //
 // General purpose Multi-Layer Perceptron (MLP)
 //
@@ -51,8 +61,6 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: 
     assert(layers[layers.count - 1].neurons.count == expected_output.count,
             "Expected output does not have the same size as the last layer.");
 
-    LEARNING_RATE :: cast(f32) 0.01;
-    
     // NOTE(Brendan Hansen):
     // Iterating backwards through the layers (hence the name "back propagation")
     // The reason this is necessary is because we need to know the derivatives of
@@ -93,11 +101,12 @@ neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: 
     for i: 1 .. layers.count {
         for j: layers[i].neurons.count {
             if layers[i].use_bias {
-                layers[i].biases[j] += LEARNING_RATE * layers[i].deltas[j];
+                layers[i].biases[j].delta = layers[i].deltas[j];
             }
 
-            for k: layers[i].weights[j].count {
-                layers[i].weights[j][k] += LEARNING_RATE * layers[i].deltas[j] * layers[i - 1].neurons[k];
+            prev_layer_count := layers[i - 1].neurons.count;
+            for k: prev_layer_count {
+                layers[i].weights[j * prev_layer_count + k].delta = layers[i].deltas[j] * layers[i - 1].neurons[k];
             }
         }
     }
@@ -121,19 +130,25 @@ neural_net_loss :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: Crit
     return criterion.compute_loss(layers[layers.count - 1].neurons, expected_output);
 }
 
+neural_net_supply_parameters :: (use nn: ^NeuralNet, optimizer: ^Optimizer) {
+    for ^layer: layers {
+        if layer.biases.data != null  do array.push(^optimizer.variable_arrays, ^layer.biases);
+        if layer.weights.data != null do array.push(^optimizer.variable_arrays, ^layer.weights);
+    }
+}
+
 
 Layer :: struct {
     use_bias   : bool;
     is_input   : bool;
     activation : ActivationFunction;
 
-    biases  :   [] f32;
-    weights : [][] f32; // CLEANUP: Make this a rank 1 slice
+    biases  : [] Variable;
+    weights : [] Variable;
 
     neurons                : [] f32;
     pre_activation_neurons : [] f32;
 
-    // The deltas could possibly be stored in the optimizer.
     deltas : [] f32;
 }
 
@@ -149,13 +164,10 @@ layer_init :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
 
     if !is_input && allocate_weights_and_biases {
         if use_bias {
-            biases = memory.make_slice(f32, layer_size, allocator);
+            biases = memory.make_slice(Variable, layer_size, allocator);
         }
         
-        weights = memory.make_slice(#type [] f32, layer_size, allocator);
-        for ^weight: weights {
-            *weight = memory.make_slice(f32, prev_layer_size, allocator);
-        }
+        weights = memory.make_slice(Variable, layer_size * prev_layer_size, allocator);
 
         randomize_weights_and_biases(layer);
     }
@@ -163,27 +175,25 @@ layer_init :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocat
 
 randomize_weights_and_biases :: (use layer: ^Layer) {
     for ^weight: weights {
-        for ^w: *weight {
-            *w = cast(f32) random.float(-0.5f, 0.5f);
-        }
+        weight.value = cast(f32) random.float(-0.5f, 0.5f);
     }
 
     if use_bias {
-        for ^bias: biases do *bias = cast(f32) random.float(-0.5f, 0.5f);
+        for ^bias: biases do bias.value = cast(f32) random.float(-0.5f, 0.5f);
     }
 }
 
 layer_forward :: (use layer: ^Layer, prev_layer: ^Layer) {
     for i: neurons.count {
-        neurons[i] = 0;
-        if use_bias do neurons[i] = biases[i];
+        neuron: f32 = 0;
+        if use_bias do neuron = biases[i].value;
 
-        for j: weights[i].count {
-            neurons[i] += prev_layer.neurons[j] * weights[i][j];
+        for j: prev_layer.neurons.count {
+            neuron += prev_layer.neurons[j] * weights[i * prev_layer.neurons.count + j].value;
         }
 
-        pre_activation_neurons[i] = neurons[i];
-        neurons[i] = activation.forward(neurons[i]);
+        pre_activation_neurons[i] = neuron;
+        neurons[i] = activation.forward(neuron);
     }
 }
 
@@ -191,19 +201,17 @@ layer_backward :: (use layer: ^Layer, next_layer: ^Layer) {
     for j: neurons.count {
         d_neuron: f32 = 0;
         for k: next_layer.neurons.count {
-            d_neuron += next_layer.deltas[k] * next_layer.weights[k][j];
+            d_neuron += next_layer.deltas[k] * next_layer.weights[k * neurons.count + j].value;
         }
         
         d_sigmoid_value := activation.backward(neurons[j], pre_activation_neurons[j]);
         
-        // This could easily become '+=', which would allow for an accumulated gradient,
-        // before taking a step.
         deltas[j] = d_neuron * d_sigmoid_value;
     }
 }
 
 
-Onyx_NN_Magic_Number :: 0x4E4E584F
+Onyx_NN_Magic_Number := 0x4E4E584F
 
 neural_net_save :: (use nn: ^NeuralNet, filename: str) {
     err, output_file := io.open(filename, io.OpenMode.Write);
@@ -213,13 +221,13 @@ neural_net_save :: (use nn: ^NeuralNet, filename: str) {
     writer := io.binary_writer_make(^output_file);
 
     // Magic string
-    io.binary_write(^writer, i32, Onyx_NN_Magic_Number);
+    io.binary_write(^writer, i32, ^Onyx_NN_Magic_Number);
 
     // Number of layers
-    io.binary_write(^writer, i32, layers.count);
+    io.binary_write(^writer, i32, ^layers.count);
 
     for ^layer: layers {
-        io.binary_write(^writer, i32, layer.neurons.count);
+        io.binary_write(^writer, i32, ^layer.neurons.count);
 
         io.binary_write_byte(^writer, cast(u8) layer.is_input);
         if layer.is_input do continue;
@@ -228,11 +236,14 @@ neural_net_save :: (use nn: ^NeuralNet, filename: str) {
         io.binary_write_byte(^writer, cast(u8) layer.activation.id);
 
         if layer.use_bias {
-            io.binary_write_slice(^writer, layer.biases);
+//            io.binary_write_slice(^writer, layer.biases);
+            for ^bias: layer.biases {
+                io.binary_write(^writer, f32, ^bias.value);
+            }
         }
-
+        
         for ^weight: layer.weights {
-            io.binary_write_slice(^writer, *weight);
+            io.binary_write(^writer, f32, ^weight.value);
         }
     }
 }
@@ -259,7 +270,7 @@ neural_net_load :: (filename: str) -> NeuralNet {
         layer_size := io.binary_read(^reader, i32);
         is_input   := cast(bool) io.binary_read_byte(^reader);
 
-        layer_init(^nn.layers[l], layer_size, prev_layer_size, allocator = layer_allocator, allocate_weights_and_biases = false);
+        layer_init(^nn.layers[l], layer_size, prev_layer_size, allocator = layer_allocator);
         if !is_input {
             nn.layers[l].use_bias = cast(bool) io.binary_read_byte(^reader);
 
@@ -267,11 +278,15 @@ neural_net_load :: (filename: str) -> NeuralNet {
             nn.layers[l].activation = activation_function_from_id(activation_id);
 
             if nn.layers[l].use_bias {
-                nn.layers[l].biases = io.binary_read_slice(^reader, f32, layer_size, allocator = layer_allocator);
+                for i: layer_size {
+                    nn.layers[l].biases[i].value = io.binary_read(^reader, f32);
+                }
             }
 
             for w: layer_size {
-                nn.layers[l].weights[w] = io.binary_read_slice(^reader, f32, prev_layer_size, allocator = layer_allocator);
+                for ww: prev_layer_size {
+                    nn.layers[l].weights[w * prev_layer_size + ww].value = io.binary_read(^reader, f32);
+                }
             }
         }
 
@@ -473,4 +488,92 @@ dataloader_get_item :: (use data: ^DataLoader, index: u32, input: [] f32, output
     if vtable.get_item == null_proc do return false;
     
     return vtable.get_item(data, index, input, output);
+}
+
+
+//
+// Optimizers
+//
+
+Optimizer :: struct {
+    vtable    : ^Optimizer_Functions;
+    network   : ^NeuralNet;
+    
+    // TODO(Brendan Hansen): Make these fixed size slices?
+    // This would require know the exact parameter count for the network.
+    
+    // NOTE(Brendan Hansen): Used to store standalone variables that need to be updated.
+    variables : [..] ^Variable;
+    
+    // NOTE(Brendan Hansen): Used to store contigiously allocated variables that need to be updated.
+    // This prevents having a LOT of variables in the variables array.
+    variable_arrays : [..] ^[] Variable;
+}
+
+Optimizer_Functions :: struct {
+    step : (optimizer: ^Optimizer) -> void;
+}
+
+optimizer_init :: (use optim: ^Optimizer, nn: ^NeuralNet, allocator := context.allocator) {
+    network = nn;
+
+    #context_scope {
+        context.allocator = allocator;
+
+        variables       = array.make(#type ^Variable);
+        variable_arrays = array.make(#type ^[] Variable);
+    }
+}
+
+optimizer_step :: (use optim: ^Optimizer) {
+    if vtable == null do return;
+    if vtable.step == null_proc do return;
+
+    vtable.step(optim);
+}
+
+optimizer_zero_gradient :: (use optim: ^Optimizer) {
+    for variable: variables {
+        variable.delta = 0;
+    }
+
+    for variable_array: variable_arrays {
+        for ^variable: *variable_array {
+            variable.delta = 0;
+        }
+    }
+}
+
+
+
+SGD_Optimizer :: struct {
+    use base : Optimizer;
+    
+    learning_rate : f32;
+}
+
+sgd_optimizer_vtable := Optimizer_Functions.{
+    step = sgd_optimizer_step,
+};
+
+sgd_optimizer_create :: (nn: ^NeuralNet, learning_rate := 0.01f, allocator := context.allocator) -> SGD_Optimizer {
+    sgd : SGD_Optimizer;
+    sgd.vtable = ^sgd_optimizer_vtable;
+    optimizer_init(^sgd, nn, allocator);
+
+    learning_rate = learning_rate;
+
+    return sgd;
+}
+
+sgd_optimizer_step :: (use optimizer: ^SGD_Optimizer) {
+    for variable: variables {
+        variable.value += variable.delta * learning_rate;
+    }
+
+    for variable_array: variable_arrays {
+        for ^variable: *variable_array {
+            variable.value += variable.delta * learning_rate;
+        }
+    }
 }

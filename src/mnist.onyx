@@ -61,8 +61,7 @@ mnist_dataloader_functions := DataLoader_Functions.{
     }
 }
 
-
-stocastic_gradient_descent :: (nn: ^NeuralNet, dataloader: ^DataLoader, criterion: Criterion = mean_squared_error) {
+train :: (nn: ^NeuralNet, dataloader: ^DataLoader, optimizer: ^Optimizer, criterion: Criterion = mean_squared_error) {
     input := memory.make_slice(f32, 784);
     defer cfree(input.data);
     expected : [10] f32;
@@ -71,14 +70,21 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, dataloader: ^DataLoader, criterio
     
     past_100_correct := 0;
     for i: 10 {
+        printf("Staring epoch %i ===================================\n", i);
         for ex: training_example_count {
             dataloader_get_item(dataloader, ex, input, ~~ expected);
             
+            // NOTE(Brendan Hansen): Currently, zeroing the gradient is not
+            // necessary because neural_net_backward replaces the gradient,
+            // in other words it doesn't add to the existing gradient.
+            // optimizer_zero_gradient(optimizer);
+            
             neural_net_forward(nn, ~~ input);
             neural_net_backward(nn, ~~ expected, criterion);
-            
-            // The optimizing step should be put here.
-            
+            optimizer_step(optimizer);
+
+
+            // NOTE(Brendan Hansen): Prediction printing and tracking.
             label, _   := array.greatest(expected);
             prediction := neural_net_get_prediction(nn);
             if prediction == label do past_100_correct += 1;
@@ -111,12 +117,10 @@ stocastic_gradient_descent :: (nn: ^NeuralNet, dataloader: ^DataLoader, criterio
 
                 past_100_correct = 0;
                 
-                /*
                 if ex % 10000 == 0 {
                     println("Saving neural network...");
-                    neural_net_save(nn, "data/test_4.nn");
+                    neural_net_save(nn, "data/still_working.nn");
                 }
-                */
             }
         }
     }
@@ -127,7 +131,6 @@ main :: (args: [] cstr) {
     // main_allocator := context.allocator;
     // context.allocator = alloc.log.logging_allocator(^main_allocator);
 
-    //nn := neural_net_load("data/test_3.nn");
     nn := make_neural_net(28 * 28, 512, 256, 100, 10);
     defer neural_net_free(^nn);
 
@@ -136,5 +139,9 @@ main :: (args: [] cstr) {
     mnist_data := mnist_data_make();
     defer mnist_data_close(^mnist_data);
 
-    stocastic_gradient_descent(^nn, ^mnist_data);
+    optimizer := sgd_optimizer_create(^nn, learning_rate = 0.005f);
+    neural_net_supply_parameters(^nn, ^optimizer);
+
+    println("Starting training");
+    train(^nn, ^mnist_data, ^optimizer);
 }
