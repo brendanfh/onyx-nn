@@ -24,7 +24,7 @@ MNIST_DataLoader :: struct {
 
         return mnist_data;
     }
-       
+
     close :: (use mnist_data: ^MNIST_DataLoader) {
         io.stream_close(^images);
         io.stream_close(^labels);
@@ -88,14 +88,14 @@ train :: (nn: ^NeuralNet, dataloader: ^DataLoader(MNIST_Sample), optimizer: ^Opt
             dataloader_get_item(dataloader, ex, ^sample);
             
             optimizer_zero_gradient(optimizer);
-            neural_net_forward(nn, ~~ sample.input);
-            neural_net_backward(nn, ~~ sample.output, criterion);
+            NeuralNet.forward(nn, ~~ sample.input);
+            NeuralNet.backward(nn, ~~ sample.output, criterion);
             optimizer_step(optimizer);
 
 
             // NOTE(Brendan Hansen): Prediction printing and tracking.
             label, _   := array.greatest(sample.output);
-            prediction := neural_net_get_prediction(nn);
+            prediction := NeuralNet.get_prediction(nn);
             if prediction == label do past_100_correct += 1;
 
             if ex % 100 == 0 {
@@ -116,12 +116,12 @@ train :: (nn: ^NeuralNet, dataloader: ^DataLoader(MNIST_Sample), optimizer: ^Opt
                 color := 94;
                 if prediction != label do color = 91;
 
-                output := neural_net_get_output(nn);
+                output := NeuralNet.get_output(nn);
 
                 print_colored_array(sample.output, label, color);
                 print_colored_array(output, prediction, color);
 
-                loss := neural_net_loss(nn, sample.output, criterion);
+                loss := NeuralNet.get_loss(nn, sample.output, criterion);
                 printf("Loss: %f         Correct: %i / 100\n", cast(f32) loss, past_100_correct);
 
                 past_100_correct = 0;
@@ -140,8 +140,8 @@ main :: (args: [] cstr) {
     // main_allocator := context.allocator;
     // context.allocator = alloc.log.logging_allocator(^main_allocator);
 
-    nn := make_neural_net(28 * 28, 512, 256, 100, 10);
-    defer neural_net_free(^nn);
+    nn := NeuralNet.make(28 * 28, 512, 256, 100, 10);
+    defer nn.free(^nn);
 
     random.set_seed(5234);
 
@@ -149,7 +149,7 @@ main :: (args: [] cstr) {
     defer mnist_data.close(^mnist_data);
 
     optimizer := sgd_optimizer_create(^nn, learning_rate = 0.005f);
-    neural_net_supply_parameters(^nn, ^optimizer);
+    nn.supply_parameters(^nn, ^optimizer);
 
     println("Starting training");
     train(^nn, ^mnist_data, ^optimizer);

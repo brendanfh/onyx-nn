@@ -20,120 +20,125 @@ NeuralNet :: struct {
     // CLEANUP(Brendan Hansen): Move all allocators to core.alloc,
     // so the nesting isn't nearly as terrible.
     layer_arena : alloc.arena.ArenaState;
-}
 
-make_neural_net :: (layer_sizes: ..i32) -> NeuralNet {
-    net : NeuralNet;
-    neural_net_init(^net, layer_sizes.count);
+    make :: (layer_sizes: ..i32) -> NeuralNet {
+        net : NeuralNet;
 
-    layer_allocator := alloc.arena.make_allocator(^net.layer_arena);
+        // BUGFIX: It should be possible to omit 'NeuralNet.' here because
+        // init is defined in the same scope. This is happening because at
+        // parse time, these functions are not being entered in the correct
+        // scope and thus are not resolving the correct symbols.
+        NeuralNet.init(^net, layer_sizes.count);
 
-    layer_init(^net.layers[0], layer_sizes[0], 0, allocator = layer_allocator);
-    for i: 1 .. net.layers.count {
-        layer_init(^net.layers[i], layer_sizes[i], layer_sizes[i - 1], allocator = layer_allocator);
+        layer_allocator := alloc.arena.make_allocator(^net.layer_arena);
+
+        Layer.init(^net.layers[0], layer_sizes[0], 0, allocator = layer_allocator);
+        for i: 1 .. net.layers.count {
+            Layer.init(^net.layers[i], layer_sizes[i], layer_sizes[i - 1], allocator = layer_allocator);
+        }
+
+        return net;
     }
 
-    return net;
-}
+    init :: (use nn: ^NeuralNet, layer_count: u32) {
+        layer_arena      = alloc.arena.make(context.allocator, 64 * 1024 * 1024); // 64 MiB
+        layer_allocator := alloc.arena.make_allocator(^layer_arena);
 
-neural_net_init :: (use nn: ^NeuralNet, layer_count: u32) {
-    layer_arena      = alloc.arena.make(context.allocator, 64 * 1024 * 1024); // 64 MiB
-    layer_allocator := alloc.arena.make_allocator(^layer_arena);
-
-    layers = memory.make_slice(Layer, layer_count, allocator = layer_allocator);
-}
-
-neural_net_free :: (use nn: ^NeuralNet) {
-    alloc.arena.free(^layer_arena);
-}
-
-neural_net_forward :: (use nn: ^NeuralNet, input: [] f32) {
-    assert(input.count == layers[0].neurons.count, "Input does not have the same size as the first layer.");
-
-    for i: input.count do layers[0].neurons[i] = input[i];
-
-    for i: 1 .. layers.count {
-        layer_forward(^layers[i], ^layers[i - 1]);
+        layers = memory.make_slice(Layer, layer_count, allocator = layer_allocator);
     }
-}
 
-neural_net_backward :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: Criterion) {
-    assert(layers[layers.count - 1].neurons.count == expected_output.count,
-            "Expected output does not have the same size as the last layer.");
+    free :: (use nn: ^NeuralNet) {
+        alloc.arena.free(^layer_arena);
+    }
 
-    // NOTE(Brendan Hansen):
-    // Iterating backwards through the layers (hence the name "back propagation")
-    // The reason this is necessary is because we need to know the derivatives of
-    // neurons in the next layer to compute the derivatives of the current layers
-    // neurons. This is what makes this algorithm not exponentially slow.
-    while i := layers.count - 1; i >= 1 {
-        defer i -= 1;
-        
+    forward :: (use nn: ^NeuralNet, input: [] f32) {
+        assert(input.count == layers[0].neurons.count, "Input does not have the same size as the first layer.");
+
+        for i: input.count do layers[0].neurons[i] = input[i];
+
+        for i: 1 .. layers.count {
+            Layer.forward(^layers[i], ^layers[i - 1]);
+        }
+    }
+
+    backward :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: Criterion) {
+        assert(layers[layers.count - 1].neurons.count == expected_output.count,
+                "Expected output does not have the same size as the last layer.");
+
         // NOTE(Brendan Hansen):
-        // For every neuron, we need to calculate its corresponding "delta", which is
-        // kind of an ambiguous term here. It specifically means the partial derivative
-        // of the the loss with respect to the weighted sum of the previous layers
-        // neurons, plus a bias.
+        // Iterating backwards through the layers (hence the name "back propagation")
+        // The reason this is necessary is because we need to know the derivatives of
+        // neurons in the next layer to compute the derivatives of the current layers
+        // neurons. This is what makes this algorithm not exponentially slow.
+        while i := layers.count - 1; i >= 1 {
+            defer i -= 1;
+            
+            // NOTE(Brendan Hansen):
+            // For every neuron, we need to calculate its corresponding "delta", which is
+            // kind of an ambiguous term here. It specifically means the partial derivative
+            // of the the loss with respect to the weighted sum of the previous layers
+            // neurons, plus a bias.
+            
+            // The last layer has its derivative computed special, since it needs to capture
+            // the derivative of the criterion function.
+            if i == layers.count - 1 {
+                criterion.compute_deltas(layers[i].deltas, layers[i].neurons, expected_output);
+                
+                // NOTE(Brendan Hansen): 
+                // Here we multiply by the derivative of the activation function for each neuron.
+                // This is done in the layer_backward function, but since that isn't called for the
+                // last layer, it is necessary to do it here.
+                for j: layers[i].deltas.count {
+                    d_sigmoid_value := layers[i].activation.backward(layers[i].neurons[j], layers[i].pre_activation_neurons[j]);
+                    layers[i].deltas[j] *= d_sigmoid_value;
+                }
+                
+            } else {
+                Layer.backward(^layers[i], ^layers[i + 1]);
+            }
+        }
         
-        // The last layer has its derivative computed special, since it needs to capture
-        // the derivative of the criterion function.
-        if i == layers.count - 1 {
-            criterion.compute_deltas(layers[i].deltas, layers[i].neurons, expected_output);
-            
-            // NOTE(Brendan Hansen): 
-            // Here we multiply by the derivative of the activation function for each neuron.
-            // This is done in the layer_backward function, but since that isn't called for the
-            // last layer, it is necessary to do it here.
-            for j: layers[i].deltas.count {
-                d_sigmoid_value := layers[i].activation.backward(layers[i].neurons[j], layers[i].pre_activation_neurons[j]);
-                layers[i].deltas[j] *= d_sigmoid_value;
-            }
-            
-        } else {
-            layer_backward(^layers[i], ^layers[i + 1]);
-        }
-    }
-    
-    // NOTE(Brendan Hansen): 
-    // Once all the deltas are computed, we can use them to compute the actual
-    // derivatives and update the biases and weights.
-    // This part is responsible for optimization, and can easily be swapped out.
-    for i: 1 .. layers.count {
-        for j: layers[i].neurons.count {
-            if layers[i].use_bias {
-                layers[i].biases[j].delta += layers[i].deltas[j];
-            }
+        // NOTE(Brendan Hansen): 
+        // Once all the deltas are computed, we can use them to compute the actual
+        // derivatives and update the biases and weights.
+        // This part is responsible for optimization, and can easily be swapped out.
+        for i: 1 .. layers.count {
+            for j: layers[i].neurons.count {
+                if layers[i].use_bias {
+                    layers[i].biases[j].delta += layers[i].deltas[j];
+                }
 
-            prev_layer_count := layers[i - 1].neurons.count;
-            for k: prev_layer_count {
-                layers[i].weights[j * prev_layer_count + k].delta += layers[i].deltas[j] * layers[i - 1].neurons[k];
+                prev_layer_count := layers[i - 1].neurons.count;
+                for k: prev_layer_count {
+                    layers[i].weights[j * prev_layer_count + k].delta += layers[i].deltas[j] * layers[i - 1].neurons[k];
+                }
             }
         }
     }
-}
 
-neural_net_get_output :: (use nn: ^NeuralNet) -> [] f32 {
-    return layers[layers.count - 1].neurons;
-}
+    get_output :: (use nn: ^NeuralNet) -> [] f32 {
+        return layers[layers.count - 1].neurons;
+    }
 
-// :MNISTSpecific
-neural_net_get_prediction :: (use nn: ^NeuralNet) -> i32 {
-    output := neural_net_get_output(nn);
+    // :MNISTSpecific
+    get_prediction :: (use nn: ^NeuralNet) -> i32 {
+        output := NeuralNet.get_output(nn);
 
-    greatest_idx := 0;
-    for i: output.count do if output[i] > output[greatest_idx] do greatest_idx = i;
+        greatest_idx := 0;
+        for i: output.count do if output[i] > output[greatest_idx] do greatest_idx = i;
 
-    return greatest_idx;
-}
+        return greatest_idx;
+    }
 
-neural_net_loss :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: Criterion) -> f32 {
-    return criterion.compute_loss(layers[layers.count - 1].neurons, expected_output);
-}
+    get_loss :: (use nn: ^NeuralNet, expected_output: [] f32, criterion: Criterion) -> f32 {
+        return criterion.compute_loss(layers[layers.count - 1].neurons, expected_output);
+    }
 
-neural_net_supply_parameters :: (use nn: ^NeuralNet, optimizer: ^Optimizer) {
-    for ^layer: layers {
-        if layer.biases.data != null  do array.push(^optimizer.variable_arrays, ^layer.biases);
-        if layer.weights.data != null do array.push(^optimizer.variable_arrays, ^layer.weights);
+    supply_parameters :: (use nn: ^NeuralNet, optimizer: ^Optimizer) {
+        for ^layer: layers {
+            if layer.biases.data != null  do array.push(^optimizer.variable_arrays, ^layer.biases);
+            if layer.weights.data != null do array.push(^optimizer.variable_arrays, ^layer.weights);
+        }
     }
 }
 
@@ -150,63 +155,63 @@ Layer :: struct {
     pre_activation_neurons : [] f32;
 
     deltas : [] f32;
-}
 
-layer_init :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocator := context.allocator, allocate_weights_and_biases := true) {
-    neurons = memory.make_slice(f32, layer_size, allocator);
-    pre_activation_neurons = memory.make_slice(f32, layer_size, allocator);
+    init :: (use layer: ^Layer, layer_size: u32, prev_layer_size: u32, allocator := context.allocator, allocate_weights_and_biases := true) {
+        neurons = memory.make_slice(f32, layer_size, allocator);
+        pre_activation_neurons = memory.make_slice(f32, layer_size, allocator);
 
-    use_bias = true;
-    deltas = memory.make_slice(f32, layer_size, allocator);
-    activation = sigmoid_activation;
+        use_bias = true;
+        deltas = memory.make_slice(f32, layer_size, allocator);
+        activation = sigmoid_activation;
 
-    is_input = (prev_layer_size == 0);
+        is_input = (prev_layer_size == 0);
 
-    if !is_input && allocate_weights_and_biases {
+        if !is_input && allocate_weights_and_biases {
+            if use_bias {
+                biases = memory.make_slice(Variable, layer_size, allocator);
+            }
+            
+            weights = memory.make_slice(Variable, layer_size * prev_layer_size, allocator);
+
+            Layer.randomize_weights_and_biases(layer);
+        }
+    }
+
+    randomize_weights_and_biases :: (use layer: ^Layer) {
+        for ^weight: weights {
+            weight.value = cast(f32) random.float(-0.5f, 0.5f);
+        }
+
         if use_bias {
-            biases = memory.make_slice(Variable, layer_size, allocator);
+            for ^bias: biases do bias.value = cast(f32) random.float(-0.5f, 0.5f);
         }
-        
-        weights = memory.make_slice(Variable, layer_size * prev_layer_size, allocator);
-
-        randomize_weights_and_biases(layer);
-    }
-}
-
-randomize_weights_and_biases :: (use layer: ^Layer) {
-    for ^weight: weights {
-        weight.value = cast(f32) random.float(-0.5f, 0.5f);
     }
 
-    if use_bias {
-        for ^bias: biases do bias.value = cast(f32) random.float(-0.5f, 0.5f);
-    }
-}
+    forward :: (use layer: ^Layer, prev_layer: ^Layer) {
+        for i: neurons.count {
+            neuron: f32 = 0;
+            if use_bias do neuron = biases[i].value;
 
-layer_forward :: (use layer: ^Layer, prev_layer: ^Layer) {
-    for i: neurons.count {
-        neuron: f32 = 0;
-        if use_bias do neuron = biases[i].value;
+            for j: prev_layer.neurons.count {
+                neuron += prev_layer.neurons[j] * weights[i * prev_layer.neurons.count + j].value;
+            }
 
-        for j: prev_layer.neurons.count {
-            neuron += prev_layer.neurons[j] * weights[i * prev_layer.neurons.count + j].value;
+            pre_activation_neurons[i] = neuron;
+            neurons[i] = activation.forward(neuron);
         }
-
-        pre_activation_neurons[i] = neuron;
-        neurons[i] = activation.forward(neuron);
     }
-}
 
-layer_backward :: (use layer: ^Layer, next_layer: ^Layer) {
-    for j: neurons.count {
-        d_neuron: f32 = 0;
-        for k: next_layer.neurons.count {
-            d_neuron += next_layer.deltas[k] * next_layer.weights[k * neurons.count + j].value;
+    backward :: (use layer: ^Layer, next_layer: ^Layer) {
+        for j: neurons.count {
+            d_neuron: f32 = 0;
+            for k: next_layer.neurons.count {
+                d_neuron += next_layer.deltas[k] * next_layer.weights[k * neurons.count + j].value;
+            }
+            
+            d_sigmoid_value := activation.backward(neurons[j], pre_activation_neurons[j]);
+            
+            deltas[j] = d_neuron * d_sigmoid_value;
         }
-        
-        d_sigmoid_value := activation.backward(neurons[j], pre_activation_neurons[j]);
-        
-        deltas[j] = d_neuron * d_sigmoid_value;
     }
 }
 
@@ -266,7 +271,7 @@ neural_net_load :: (filename: str) -> NeuralNet {
     num_layers := io.binary_read(^reader, i32);
 
     nn : NeuralNet;
-    neural_net_init(^nn, num_layers);
+    nn.init(^nn, num_layers);
 
     layer_allocator := alloc.arena.make_allocator(^nn.layer_arena);
     prev_layer_size := 0;
@@ -275,7 +280,7 @@ neural_net_load :: (filename: str) -> NeuralNet {
         layer_size := io.binary_read(^reader, i32);
         is_input   := cast(bool) io.binary_read_byte(^reader);
 
-        layer_init(^nn.layers[l], layer_size, prev_layer_size, allocator = layer_allocator);
+        Layer.init(^nn.layers[l], layer_size, prev_layer_size, allocator = layer_allocator);
         if !is_input {
             nn.layers[l].use_bias = cast(bool) io.binary_read_byte(^reader);
 
