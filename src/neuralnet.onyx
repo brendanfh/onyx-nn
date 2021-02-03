@@ -5,10 +5,7 @@ use package core
 // Variable
 //
 // TODO(Brendan Hansen): Document this better
-Variable :: struct {
-    value : f32;
-    delta : f32;
-}
+Variable :: struct { value, delta: f32; }
 
 //
 // General purpose Multi-Layer Perceptron (MLP)
@@ -122,7 +119,7 @@ NeuralNet :: struct {
 
     // :MNISTSpecific
     get_prediction :: (use nn: ^NeuralNet) -> i32 {
-        output := NeuralNet.get_output(nn);
+        output := get_output(nn);
 
         greatest_idx := 0;
         for i: output.count do if output[i] > output[greatest_idx] do greatest_idx = i;
@@ -173,7 +170,7 @@ Layer :: struct {
             
             weights = memory.make_slice(Variable, layer_size * prev_layer_size, allocator);
 
-            Layer.randomize_weights_and_biases(layer);
+            randomize_weights_and_biases(layer);
         }
     }
 
