@@ -19,7 +19,7 @@ load_paths = {
  { load_paths_custom, .os = "mac"  },
 };
 
-build_win32   = "\\dev\\onyx\\onyx.exe -V src\\mnist.onyx -o network.wasm";
+build_win32   = "\\dev\\onyx\\onyx.exe -V src\\mnist.onyx -o mnist.wasm";
 build_linux   = "/usr/bin/onyx -V src/mnist.onyx -o mnist.wasm";
 
 command_list = {
