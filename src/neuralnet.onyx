@@ -308,7 +308,6 @@ neural_net_load :: (filename: str) -> NeuralNet {
 
 
 
-
 //
 // Activation functions
 //     The activation functions that are currently implemented are:
@@ -468,7 +467,7 @@ mean_absolute_error := Criterion.{
 //
 // DataLoader (move this to somewhere else)
 //
-// Very basic datastructure that represents something you can loader data out of.
+// Very basic datastructure that represents something you can load data out of.
 // Specifically, an input and output at a particular index.
 //
 
@@ -478,8 +477,6 @@ DataLoader :: struct (Sample_Type: type_expr) {
 
 DataLoader_Functions :: struct (Sample_Type: type_expr) {
     get_count : (^DataLoader(Sample_Type)) -> u32;
-    
-    // I don't like how these have to be floats, but they seem reasonable for now.
     get_item  : (^DataLoader(Sample_Type), index: u32, sample: ^Sample_Type) -> bool;
 }
 
@@ -518,7 +515,7 @@ Optimizer :: struct {
 }
 
 Optimizer_Functions :: struct {
-    step : (optimizer: ^Optimizer) -> void;
+    step : (optimizer: ^Optimizer, scale: f32) -> void;
 }
 
 optimizer_init :: (use optim: ^Optimizer, nn: ^NeuralNet, allocator := context.allocator) {
@@ -532,11 +529,11 @@ optimizer_init :: (use optim: ^Optimizer, nn: ^NeuralNet, allocator := context.a
     }
 }
 
-optimizer_step :: (use optim: ^Optimizer) {
+optimizer_step :: (use optim: ^Optimizer, scale: f32 = 1) {
     if vtable == null do return;
     if vtable.step == null_proc do return;
 
-    vtable.step(optim);
+    vtable.step(optim, scale);
 }
 
 optimizer_zero_gradient :: (use optim: ^Optimizer) {
@@ -573,14 +570,16 @@ sgd_optimizer_create :: (nn: ^NeuralNet, learning_rate := 0.01f, allocator := co
     return sgd;
 }
 
-sgd_optimizer_step :: (use optimizer: ^SGD_Optimizer) {
+sgd_optimizer_step :: (use optimizer: ^SGD_Optimizer, scale: f32) {
+    alpha := scale * learning_rate;
+
     for variable: variables {
-        variable.value += variable.delta * learning_rate;
+        variable.value += variable.delta * alpha;
     }
 
     for variable_array: variable_arrays {
         for ^variable: *variable_array {
-            variable.value += variable.delta * learning_rate;
+            variable.value += variable.delta * alpha;
         }
     }
 }
