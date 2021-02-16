@@ -1,4 +1,4 @@
-#load "core/std/wasi"
+#load "core/std"
 
 #load_path "src"
 #load "neuralnet"
@@ -110,18 +110,18 @@ train :: (
                 sample_num := random.between(0, training_example_count);
                 dataloader_get_item(dataloader, sample_num, ^sample);
 
-                (*nn)->forward(sample.input);
-                (*nn)->backward(sample.output, criterion);
+                nn->forward(sample.input);
+                nn->backward(sample.output, criterion);
 
                 label, _   := array.greatest(sample.output);
-                prediction := (*nn)->get_prediction();
+                prediction := nn->get_prediction();
                 if prediction == label do past_100_correct += 1;
             }
 
             optimizer_step(optimizer);
 
             if batch_num % (100 / batch_size) == 0 {
-                loss := (*nn)->get_loss(sample.output, criterion);
+                loss := nn->get_loss(sample.output, criterion);
                 printf("Loss: %f         Correct: %i / 100\n", cast(f32) loss, past_100_correct);
 
                 past_100_correct = 0;
@@ -168,12 +168,12 @@ main :: (args: [] cstr) {
                 color := 94;
                 if prediction != label do color = 91;
 
-                output := (*nn)->get_output();
+                output := nn->get_output();
 
                 print_colored_array(sample.output, label, color);
                 print_colored_array(output, prediction, color);
 
-                loss := (*nn)->get_loss(sample.output, criterion);
+                loss := nn->get_loss(sample.output, criterion);
                 printf("Loss: %f         Correct: %i / 100\n", cast(f32) loss, past_100_correct);
 
                 past_100_correct = 0;
