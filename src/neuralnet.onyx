@@ -20,12 +20,7 @@ NeuralNet :: struct {
 
     make :: (layer_sizes: ..i32) -> NeuralNet {
         net : NeuralNet;
-
-        // BUGFIX: It should be possible to omit 'NeuralNet.' here because
-        // init is defined in the same scope. This is happening because at
-        // parse time, these functions are not being entered in the correct
-        // scope and thus are not resolving the correct symbols.
-        NeuralNet.init(^net, layer_sizes.count);
+        init(^net, layer_sizes.count);
 
         layer_allocator := alloc.arena.make_allocator(^net.layer_arena);
 
