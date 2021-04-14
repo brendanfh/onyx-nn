@@ -516,12 +516,8 @@ Optimizer_Functions :: struct {
 optimizer_init :: (use optim: ^Optimizer, nn: ^NeuralNet, allocator := context.allocator) {
     network = nn;
 
-    #context_scope {
-        context.allocator = allocator;
-
-        variables       = array.make(#type ^Variable);
-        variable_arrays = array.make(#type ^[] Variable);
-    }
+    variables       = array.make(#type ^Variable,    allocator=allocator);
+    variable_arrays = array.make(#type ^[] Variable, allocator=allocator);
 }
 
 optimizer_step :: (use optim: ^Optimizer, scale: f32 = 1) {
