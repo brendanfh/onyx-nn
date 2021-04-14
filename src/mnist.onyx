@@ -1,7 +1,6 @@
 #load "core/std"
 
-#load_path "src"
-#load "neuralnet"
+#load "src/neuralnet"
 
 use package core
 
@@ -144,43 +143,3 @@ main :: (args: [] cstr) {
 
     train(^nn, ^mnist_data.base, ^optimizer);
 }
-
-
-
-
-// Old code for printing the outputs fancily:
-/*
-            {
-                print_colored_array :: (arr: [] $T, color_idx: i32, color_code := 94) {
-                    for i: arr.count {
-                        if i == color_idx {
-                            printf("\x1b[%im", color_code);
-                            print(arr[i]);
-                            print("\x1b[0m ");
-                        } else {
-                            print(arr[i]);
-                            print(" ");
-                        }
-                    }
-                    print("\n");
-                }
-
-                color := 94;
-                if prediction != label do color = 91;
-
-                output := nn->get_output();
-
-                print_colored_array(sample.output, label, color);
-                print_colored_array(output, prediction, color);
-
-                loss := nn->get_loss(sample.output, criterion);
-                printf("Loss: %f         Correct: %i / 100\n", cast(f32) loss, past_100_correct);
-
-                past_100_correct = 0;
-                
-                // if ex % 10000 == 0 {
-                //     println("Saving neural network...");
-                //     neural_net_save(nn, "data/still_working.nn");
-                // }
-            }
-            */
